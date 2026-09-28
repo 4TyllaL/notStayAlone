@@ -85,9 +85,9 @@ const SPEEDS: [&str; 4] = ["Devagar", "Normal", "Rápido", "Muito rápido"];
 /// (x a partir da barra lateral, y com `SHIFT` de folga para o título da página).
 const SIDEBAR: i32 = 200;
 const CONTENT: i32 = 580;
-const HEIGHT: i32 = 652;
+const HEIGHT: i32 = 692;
 const SHIFT: i32 = 44;
-const FOOTER: i32 = 648;
+const FOOTER: i32 = 688;
 /// Margem dos cartões: horizontal (a partir da barra) e em volta do conteúdo.
 const CARD_X: i32 = 20;
 const CARD_PAD: i32 = 12;
@@ -110,6 +110,12 @@ const IDC_GALLERY_INFO: i32 = 171;
 const IDC_GALLERY_INSTALL: i32 = 172;
 const IDC_GALLERY_RELOAD: i32 = 173;
 const IDC_GALLERY_STATUS: i32 = 174;
+const IDC_WATER_GOAL: i32 = 116;
+const IDC_FOCUS: i32 = 117;
+const IDC_BREAK: i32 = 118;
+const IDC_FOCUS_QUIET: i32 = 119;
+const IDC_HOTKEY: i32 = 134;
+const IDC_ACCESSORIES: i32 = 138;
 const IDC_MASCOT: i32 = 101;
 const IDC_SIZE: i32 = 102;
 const IDC_SPEED: i32 = 103;
@@ -471,25 +477,40 @@ unsafe fn build(hwnd: HWND) {
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 560, cw, 200), IDC_THEME);
     label!(0, tr("Idioma"), x0, 596, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 594, cw, 200), IDC_LANGUAGE);
+    add(Some(0), "BUTTON", tr("Acessórios de época (Natal, Halloween, aniversário...)"), check, 0, (x0, 630, 460, 22), IDC_ACCESSORIES);
 
     // --- Lembretes
     section!(1, tr("Seus lembretes"), 116);
     hint!(1, tr("Marque para ativar. Eles contam só o tempo em que você está usando o PC."), 140, 20);
     let list_style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_TABSTOP;
-    let list = add(Some(1), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 166, CONTENT - 2 * x0, 250), IDC_LIST);
+    let list = add(Some(1), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 166, CONTENT - 2 * x0, 200), IDC_LIST);
     let ex = LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER;
     SendMessageW(list, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as WPARAM, ex as LPARAM);
     add_columns(list, &[(tr("Lembrete"), CONTENT - 2 * x0 - 110), (tr("A cada"), 86)], dpi);
-    label!(1, tr("Texto"), x0, 432, 48);
-    let text = add(Some(1), "EDIT", "", edit, WS_EX_CLIENTEDGE, (x0 + 50, 430, 256, 24), IDC_TEXT);
+    label!(1, tr("Texto"), x0, 382, 48);
+    let text = add(Some(1), "EDIT", "", edit, WS_EX_CLIENTEDGE, (x0 + 50, 380, 256, 24), IDC_TEXT);
     SendMessageW(text, EM_SETCUEBANNER, 1, w(tr("Ex.: Conferir o e-mail")).as_ptr() as LPARAM);
     limit(text, MAX_REMINDER_TEXT);
-    label!(1, tr("a cada"), x0 + 316, 432, 46);
-    add(Some(1), "EDIT", "30", number, WS_EX_CLIENTEDGE, (x0 + 364, 430, 48, 24), IDC_MINUTES);
-    label!(1, "min", x0 + 418, 432, 40);
-    add(Some(1), "BUTTON", tr("Adicionar"), button, 0, (x0, 468, 110, 30), IDC_ADD);
-    add(Some(1), "BUTTON", tr("Salvar alteração"), button, 0, (x0 + 118, 468, 140, 30), IDC_UPDATE);
-    add(Some(1), "BUTTON", tr("Remover"), button, 0, (x0 + 266, 468, 100, 30), IDC_REMOVE);
+    label!(1, tr("a cada"), x0 + 316, 382, 46);
+    add(Some(1), "EDIT", "30", number, WS_EX_CLIENTEDGE, (x0 + 364, 380, 48, 24), IDC_MINUTES);
+    label!(1, "min", x0 + 418, 382, 40);
+    add(Some(1), "BUTTON", tr("Adicionar"), button, 0, (x0, 418, 110, 30), IDC_ADD);
+    add(Some(1), "BUTTON", tr("Salvar alteração"), button, 0, (x0 + 118, 418, 140, 30), IDC_UPDATE);
+    add(Some(1), "BUTTON", tr("Remover"), button, 0, (x0 + 266, 418, 100, 30), IDC_REMOVE);
+    section!(1, tr("Água e foco"), 484);
+    label!(1, tr("Meta de água"), x0, 514, 170);
+    let goal = add(Some(1), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx, 512, 50, 24), IDC_WATER_GOAL);
+    limit(goal, 2);
+    label!(1, tr("copos por dia (0 = sem meta)"), cx + 58, 514, 240);
+    label!(1, tr("Foco (pomodoro)"), x0, 548, 170);
+    let focus = add(Some(1), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx, 546, 50, 24), IDC_FOCUS);
+    limit(focus, 3);
+    label!(1, tr("min, pausa de"), cx + 58, 548, 100);
+    let pause = add(Some(1), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx + 160, 546, 50, 24), IDC_BREAK);
+    limit(pause, 2);
+    label!(1, "min", cx + 218, 548, 60);
+    let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
+    add(Some(1), "BUTTON", tr("Durante o foco, os lembretes esperam a pausa"), check, 0, (x0, 582, 460, 22), IDC_FOCUS_QUIET);
 
     // --- Conversa
     section!(2, tr("Conversar com o mascote"), 116);
@@ -505,28 +526,29 @@ unsafe fn build(hwnd: HWND) {
     label!(2, tr("Nome da chave"), x0, 274, 170);
     let key_name = add(Some(2), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 272, cw, 24), IDC_KEYENV);
     limit(key_name, 64);
-    section!(2, tr("Chave da API"), 330);
-    label!(2, tr("Colar a chave"), x0, 358, 170);
-    let key = add(Some(2), "EDIT", "", edit | ES_PASSWORD as u32, WS_EX_CLIENTEDGE, (cx, 356, 180, 24), IDC_KEY);
+    let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
+    add(Some(2), "BUTTON", tr("Ctrl+Alt+M abre a conversa de qualquer lugar"), check, 0, (x0, 308, 460, 22), IDC_HOTKEY);
+    section!(2, tr("Chave da API"), 364);
+    label!(2, tr("Colar a chave"), x0, 392, 170);
+    let key = add(Some(2), "EDIT", "", edit | ES_PASSWORD as u32, WS_EX_CLIENTEDGE, (cx, 390, 180, 24), IDC_KEY);
     SendMessageW(key, EM_SETCUEBANNER, 1, w(tr("cole aqui para salvar")).as_ptr() as LPARAM);
     limit(key, 512);
-    add(Some(2), "BUTTON", tr("Remover chave"), button, 0, (cx + 188, 354, 112, 28), IDC_KEY_REMOVE);
-    add(Some(2), "STATIC", "", 0, 0, (cx, 388, 180, 20), IDC_KEY_STATUS);
-    add(Some(2), "BUTTON", tr("Criar chave"), button, 0, (cx + 188, 384, 112, 28), IDC_GETKEY);
+    add(Some(2), "BUTTON", tr("Remover chave"), button, 0, (cx + 188, 388, 112, 28), IDC_KEY_REMOVE);
+    add(Some(2), "STATIC", "", 0, 0, (cx, 422, 180, 20), IDC_KEY_STATUS);
+    add(Some(2), "BUTTON", tr("Criar chave"), button, 0, (cx + 188, 418, 112, 28), IDC_GETKEY);
     hint!(
         2,
         tr("Fica no Gerenciador de Credenciais do Windows, protegida pela sua conta, e só vai por HTTPS ao serviço escolhido."),
-        418,
+        452,
         40
     );
-    add(Some(2), "BUTTON", tr("Testar conversa"), button, 0, (x0, 464, 140, 30), IDC_TEST);
-    add(Some(2), "STATIC", "", 0, 0, (x0 + 150, 462, CONTENT - 2 * x0 - 150, 40), IDC_TEST_RESULT);
-    section!(2, tr("Memória"), 532);
-    let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
-    add(Some(2), "BUTTON", tr("Lembrar do que eu contar na conversa (fica só neste PC)"), check, 0, (x0, 558, 460, 22), IDC_MEMORY);
-    add(Some(2), "STATIC", "", 0, 0, (x0, 590, 200, 20), IDC_MEMORY_STATUS);
-    add(Some(2), "BUTTON", tr("Ver e editar"), button, 0, (x0 + 206, 584, 118, 30), IDC_MEMORY_OPEN);
-    add(Some(2), "BUTTON", tr("Esquecer tudo"), button, 0, (x0 + 332, 584, 124, 30), IDC_MEMORY_CLEAR);
+    add(Some(2), "BUTTON", tr("Testar conversa"), button, 0, (x0, 498, 140, 30), IDC_TEST);
+    add(Some(2), "STATIC", "", 0, 0, (x0 + 150, 496, CONTENT - 2 * x0 - 150, 40), IDC_TEST_RESULT);
+    section!(2, tr("Memória"), 566);
+    add(Some(2), "BUTTON", tr("Lembrar do que eu contar na conversa (fica só neste PC)"), check, 0, (x0, 592, 460, 22), IDC_MEMORY);
+    add(Some(2), "STATIC", "", 0, 0, (x0, 624, 200, 20), IDC_MEMORY_STATUS);
+    add(Some(2), "BUTTON", tr("Ver e editar"), button, 0, (x0 + 206, 618, 118, 30), IDC_MEMORY_OPEN);
+    add(Some(2), "BUTTON", tr("Esquecer tudo"), button, 0, (x0 + 332, 618, 124, 30), IDC_MEMORY_CLEAR);
 
     // --- Criar mascote
     card!(3, 118);
@@ -749,6 +771,12 @@ unsafe fn populate(hwnd: HWND) {
     set_checked_box(hwnd, IDC_UPDATES, st.draft.updates);
     set_checked_box(hwnd, IDC_MEETINGS, st.draft.quiet_in_meetings);
     set_checked_box(hwnd, IDC_MEMORY, st.draft.memory);
+    set_checked_box(hwnd, IDC_HOTKEY, st.draft.chat_hotkey);
+    set_checked_box(hwnd, IDC_ACCESSORIES, st.draft.accessories);
+    set_checked_box(hwnd, IDC_FOCUS_QUIET, st.draft.companion.focus_holds_reminders);
+    set_text(hwnd, IDC_WATER_GOAL, &st.draft.companion.water_goal.to_string());
+    set_text(hwnd, IDC_FOCUS, &st.draft.companion.focus_minutes.to_string());
+    set_text(hwnd, IDC_BREAK, &st.draft.companion.break_minutes.to_string());
     let buddies: Vec<String> = std::iter::once(tr("Nenhum").to_string()).chain(st.packs.iter().map(|p| p.name.clone())).collect();
     let buddy = st.packs.iter().position(|p| p.id == st.draft.buddy).map_or(0, |i| i + 1);
     fill_combo(hwnd, IDC_BUDDY, &buddies, buddy);
@@ -1326,7 +1354,7 @@ unsafe fn on_memory_command(hwnd: HWND, id: i32) {
 }
 
 /// Os interruptores (desenhados aqui; o estado fica em `State::toggles`).
-const TOGGLES: [i32; 4] = [IDC_AUTOSTART, IDC_UPDATES, IDC_MEETINGS, IDC_MEMORY];
+const TOGGLES: [i32; 7] = [IDC_AUTOSTART, IDC_UPDATES, IDC_MEETINGS, IDC_MEMORY, IDC_FOCUS_QUIET, IDC_HOTKEY, IDC_ACCESSORIES];
 
 unsafe fn is_checked(hwnd: HWND, id: i32) -> bool {
     state(hwnd).and_then(|st| st.toggles.iter().find(|t| t.0 == id).map(|t| t.1)).unwrap_or(false)
@@ -1344,9 +1372,24 @@ unsafe fn on_ok(hwnd: HWND) {
     let Some(away) = number(hwnd, IDC_AWAY, 1..=120, tr("Tempo para considerar ausente")) else {
         return show_page(hwnd, Page::General as usize);
     };
+    let Some(water_goal) = number(hwnd, IDC_WATER_GOAL, 0..=30, tr("Meta de água")) else {
+        return show_page(hwnd, Page::Reminders as usize);
+    };
+    let Some(focus) = number(hwnd, IDC_FOCUS, 1..=180, tr("Foco (pomodoro)")) else {
+        return show_page(hwnd, Page::Reminders as usize);
+    };
+    let Some(pause) = number(hwnd, IDC_BREAK, 1..=60, tr("Pausa do foco")) else {
+        return show_page(hwnd, Page::Reminders as usize);
+    };
     if !save_chat(hwnd) {
         return;
     }
+    st.draft.companion.water_goal = water_goal;
+    st.draft.companion.focus_minutes = focus;
+    st.draft.companion.break_minutes = pause;
+    st.draft.companion.focus_holds_reminders = is_checked(hwnd, IDC_FOCUS_QUIET);
+    st.draft.chat_hotkey = is_checked(hwnd, IDC_HOTKEY);
+    st.draft.accessories = is_checked(hwnd, IDC_ACCESSORIES);
     if let Some(p) = st.packs.get(combo_index(hwnd, IDC_MASCOT)) {
         st.draft.mascot = p.id.clone();
     }

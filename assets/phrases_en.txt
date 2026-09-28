@@ -8,6 +8,9 @@
 #   {juntos}  time you spent together today (e.g. 3h12min)
 #   {pausas}  e.g. "2 breaks" / "no breaks"
 #   {agua}    e.g. "3 glasses" / "no water"
+#   {meta}     today's water goal; {sequencia} days in a row hitting the goal
+#   {juntos_semana}, {pausas_semana}, {agua_semana}  the same, adding up the last 7 days
+#   {amigo}    in [amigo]: the name of the buddy on screen
 #
 # Each mascot can have its own lines (phrases_en.txt in its folder),
 # which replace these only in the topics it defines.
@@ -157,3 +160,23 @@ Weekends are for enjoying. How about a break outside?
 You haven't stopped for about 3 hours. How about a real break?
 Three hours straight! Get up a little, drink some water, come back refreshed.
 Hey, you haven't stopped in a while. Your eyes and back would love a break!
+
+[meta_agua]
+Goal reached! {meta} glasses of water today. Your body thanks you!
+That's it! You drank all {meta} glasses today. I'm so happy!
+Water goal done! So proud of you.
+
+[sequencia]
+Goal reached again! That's {sequencia} days in a row.
+{sequencia} days in a row drinking your water. Amazing!
+Look at that streak: {sequencia} days hitting the goal!
+
+[semana]
+Good morning! Last week we spent {juntos_semana} together, {pausas_semana} and {agua_semana}.
+New week! Last one we had {juntos_semana} together and you drank {agua_semana}.
+
+[amigo]
+Hi, {amigo}! So good to see you.
+{amigo} came to visit me!
+Wanna play, {amigo}?
+Look who's here: {amigo}!

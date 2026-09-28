@@ -275,6 +275,18 @@ impl Mascot {
         }
     }
 
+    /// Está dormindo (ou bocejando para dormir)?
+    pub fn sleeping(&self) -> bool {
+        matches!(self.state, State::Sleep | State::Yawn)
+    }
+
+    /// Cochilo normal, que acaba sozinho (dormir junto do amigo).
+    pub fn nap(&mut self) {
+        if matches!(self.state, State::Idle | State::Walk | State::Happy | State::Land) {
+            self.set(State::Yawn, 14);
+        }
+    }
+
     /// Você saiu do PC: boceja e dorme até ser acordado.
     pub fn doze(&mut self) {
         self.deep = true;

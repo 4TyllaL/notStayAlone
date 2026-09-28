@@ -331,6 +331,22 @@ const EN: &[(&str, &str)] = &[
     ("mascot.txt não abriu (ou passa de 256 KB)", "mascot.txt didn't open (or is over 256 KB)"),
     ("não encontrado", "not found"),
     ("É", "Pronoun"),
+    ("(Clique e eu te guio!)", "(Click me and I'll guide you!)"),
+    ("Acessórios de época (Natal, Halloween, aniversário...)", "Seasonal accessories (Christmas, Halloween, birthday...)"),
+    ("Ctrl+Alt+M abre a conversa de qualquer lugar", "Ctrl+Alt+M opens the chat from anywhere"),
+    ("Durante o foco, os lembretes esperam a pausa", "During focus, reminders wait for the break"),
+    ("Foco (pomodoro)", "Focus (pomodoro)"),
+    ("Meta de água", "Water goal"),
+    ("Pausa do foco", "Focus break"),
+    ("copos por dia (0 = sem meta)", "glasses a day (0 = no goal)"),
+    ("min, pausa de", "min, break of"),
+    ("Água e foco", "Water and focus"),
+    ("Olhe para algo bem longe, pela janela se der... {}", "Look at something far away, out the window if you can... {}"),
+    ("Agora pisque devagar, várias vezes... {}", "Now blink slowly, a few times... {}"),
+    ("Gire os ombros para trás, devagar... {}", "Roll your shoulders back, slowly... {}"),
+    ("Incline a cabeça para a direita... {}", "Tilt your head to the right... {}"),
+    ("Agora para a esquerda... {}", "Now to the left... {}"),
+    ("Estique os braços para cima, bem alto! {}", "Stretch your arms up, nice and high! {}"),
 ];
 
 #[cfg(test)]

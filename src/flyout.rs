@@ -82,8 +82,9 @@ pub struct Model {
     pub silenced: bool,
     pub hidden: bool,
     pub reminders_on: usize,
-    /// Copos d'água de hoje.
+    /// Copos d'água de hoje e a meta (0 = sem meta).
     pub water: u32,
+    pub water_goal: u32,
     /// Versão nova disponível (mostra a faixa "Atualizar").
     pub update: Option<String>,
 }
@@ -93,6 +94,8 @@ pub struct Model {
 enum Right {
     Nothing,
     Chevron,
+    /// Barrinha de progresso e "feito/meta".
+    Progress(u32, u32),
     Switch(bool),
     Note(String),
 }
@@ -197,12 +200,13 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
         1 => tr("1 ligado").to_string(),
         n => fill(tr("{} ligados"), &[&n]),
     };
-    let water = match m.water {
-        0 => tr("nenhum hoje").to_string(),
-        n => fill(tr("{} hoje"), &[&n]),
+    let water = match (m.water, m.water_goal) {
+        (done, goal) if goal > 0 => Right::Progress(done, goal),
+        (0, _) => Right::Note(tr("nenhum hoje").to_string()),
+        (n, _) => Right::Note(fill(tr("{} hoje"), &[&n])),
     };
     let rows = [
-        (icon::WATER, tr("Bebi um copo d'água"), Right::Note(water), Action::Water),
+        (icon::WATER, tr("Bebi um copo d'água"), water, Action::Water),
         (icon::MUTE, tr("Silenciar por 1 hora"), Right::Switch(m.silenced), Action::Silence),
         (icon::HIDE, tr("Esconder o mascote"), Right::Switch(m.hidden), Action::Hide),
         (icon::BELL, tr("Lembretes"), Right::Note(reminders), Action::Reminders),
@@ -459,6 +463,18 @@ impl Flyout {
                         c.text(small, note, rect(right_edge - s(120), y, s(100), h), theme::muted(), flags);
                         c.text(icon_font, &icon::CHEVRON.to_string(), rect(right_edge - s(16), y, s(16), h), theme::muted(), center);
                     }
+                    Right::Progress(done, goal) => {
+                        let flags = DT_RIGHT | DT_VCENTER | DT_SINGLELINE;
+                        let text_w = s(40);
+                        c.text(small, &format!("{done}/{goal}"), rect(right_edge - text_w, y, text_w, h), theme::muted(), flags);
+                        let (bw, bh) = (s(56), s(6));
+                        let (bx, by) = (right_edge - text_w - s(6) - bw, y + (h - bh) / 2);
+                        c.round_rect(bx, by, bw, bh, bh / 2, argb(theme::switch_off()));
+                        let filled = (bw as u64 * (*done).min(*goal) as u64 / (*goal).max(1) as u64) as i32;
+                        if filled > 0 {
+                            c.round_rect(bx, by, filled.max(bh), bh, bh / 2, argb(theme::accent()));
+                        }
+                    }
                     Right::Switch(on) => {
                         let (sw, sh) = (s(36), s(20));
                         let (sx, sy) = (right_edge - sw, y + (h - sh) / 2);
@@ -555,6 +571,7 @@ mod tests {
             hidden: false,
             reminders_on: 2,
             water: 0,
+            water_goal: 8,
             update: None,
         }
     }

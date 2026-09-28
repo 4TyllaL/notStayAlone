@@ -47,8 +47,18 @@ pub enum Topic {
     Weekend,
     /// Três horas usando o PC sem pausa.
     NoBreak,
+    /// Bateu a meta de água do dia.
+    WaterGoal,
+    /// Bateu a meta de novo: dias seguidos.
+    Streak,
+    /// Resumo da semana (segunda de manhã).
+    Week,
+    /// O amigo na tela veio visitar ({amigo} = o nome dele).
+    Friend,
     /// Lembrete personalizado: o texto vem da configuração, não do arquivo de falas.
     Reminder,
+    /// Pausa guiada em andamento (texto vem do `guide`).
+    Guide,
     /// Resposta da conversa com IA (texto vem do plugin).
     Chat,
     /// Aviso de um plugin (texto vem do plugin).
@@ -58,12 +68,12 @@ pub enum Topic {
 }
 
 /// Nomes no arquivo, na mesma ordem do enum `Topic`.
-const KEYS: [&str; 30] = [
+const KEYS: [&str; 34] = [
     "bom_dia", "boa_tarde", "boa_noite", "madrugada", "voltou", "saudade", "agua", "alongar",
     "olhos", "meia_noite", "carinho", "carinho_muito", "obrigado", "pomodoro_inicio",
     "pomodoro_pausa", "pomodoro_volta", "resumo", "silencio", "ola", "petisco", "cheio",
     "bolinha_fim", "bateria_baixa", "carregando", "digitando", "aniversario", "segunda", "sexta", "fim_de_semana",
-    "sem_pausa",
+    "sem_pausa", "meta_agua", "sequencia", "semana", "amigo",
 ];
 
 #[derive(Clone)]

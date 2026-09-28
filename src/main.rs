@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 #![allow(non_snake_case)] // nome do binário: dontStayAlone.exe
 
+mod accessory;
 mod ai;
 mod bubble;
 mod buddy;
@@ -11,6 +12,7 @@ mod config;
 mod flyout;
 mod gallery;
 mod gfx;
+mod guide;
 mod lang;
 mod mailbox;
 mod maker;
@@ -45,7 +47,9 @@ use windows_sys::Win32::{
     System::{LibraryLoader::GetModuleHandleW, Threading::CreateMutexW},
     UI::{
         HiDpi::{GetDpiForSystem, SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2},
-        Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
+        Input::KeyboardAndMouse::{
+            RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+        },
         WindowsAndMessaging::*,
     },
 };
@@ -72,11 +76,16 @@ use tray::{Tray, WM_TRAY};
 use welcome::{WM_WELCOME_DONE, WM_WELCOME_MASCOT};
 use win::{message, w};
 
+/// Id do atalho Ctrl+Alt+M (conversa).
+const HOTKEY_CHAT: i32 = 1;
+
 const TIMER_ANIM: usize = 1;
 const TIMER_WATCH: usize = 2;
 const TIMER_BUBBLE: usize = 3;
 const TIMER_PROP: usize = 4;
 const TIMER_SENSE: usize = 5;
+/// Contagem da pausa guiada (1 s).
+const TIMER_GUIDE: usize = 6;
 const WATCH_MS: u32 = 2000;
 const SENSE_MS: u32 = 500;
 const PROP_MS: u32 = 16;
@@ -338,6 +347,10 @@ struct App {
     mouse_input: u32,
     /// Fala que chegou numa hora ruim (caindo, tela cheia); sai assim que der.
     pending: Option<(Topic, Option<String>)>,
+    /// Pausa guiada em andamento.
+    guide: Option<guide::Guide>,
+    /// Chapéu do dia (acessórios de época), se houver.
+    hat: Option<accessory::Hat>,
     hearts: u32,
     taskbar_created: u32,
     /// Conversa com a IA: histórico recente e se há resposta a caminho.
@@ -424,6 +437,8 @@ impl App {
             taskbar_created: 0,
             chat_history: Vec::new(),
             chat_busy: false,
+            guide: None,
+            hat: None,
             chat_plugin: None,
             notices: Vec::new(),
             update: None,
@@ -440,6 +455,8 @@ impl App {
             config::set_autostart(true); // atualiza o caminho caso o .exe tenha mudado de lugar
         }
         self.load_plugins();
+        self.sync_hotkey();
+        self.update_hat();
         SetTimer(self.hwnd, TIMER_WATCH, WATCH_MS, None);
         self.busy_hidden = fullscreen_app_running();
         self.update_visibility();
@@ -462,6 +479,9 @@ impl App {
         let pos = (self.mascot.x.round() as i32, self.mascot.y.round() as i32);
         if self.rendered != Some(frame) {
             self.art.draw(frame.0, frame.1, self.draw_scale as usize, self.canvas.pixels());
+            if let Some(hat) = self.hat {
+                hat.draw(self.canvas.pixels(), self.art.size(), self.draw_scale as usize, frame.1);
+            }
             self.canvas.present(self.hwnd, (pos != self.shown_at).then_some(pos));
             self.rendered = Some(frame);
         } else if pos != self.shown_at {
@@ -469,7 +489,7 @@ impl App {
         }
         self.shown_at = pos;
         if let Some(b) = self.buddy.as_mut() {
-            b.present();
+            b.present(self.hat);
         }
     }
 
@@ -568,13 +588,7 @@ impl App {
             b.tick(dt, &self.bounds, toy_x, friend)
         });
         match arrived {
-            // Encontro: os dois comemoram.
-            Some(Arrived::Friend) => {
-                self.mascot.cheer();
-                if let Some(b) = self.buddy.as_mut() {
-                    b.mascot.cheer();
-                }
-            }
+            Some(Arrived::Friend) => self.on_friend(),
             Some(Arrived::Toy) => self.on_arrive(true),
             None => {}
         }
@@ -634,6 +648,7 @@ impl App {
 
     unsafe fn on_watch(&mut self) {
         self.watch_count += 1;
+        self.update_hat();
         let busy = fullscreen_app_running();
         if busy != self.busy_hidden {
             self.busy_hidden = busy;
@@ -752,7 +767,7 @@ impl App {
             match self.buddy.as_mut() {
                 Some(b) => {
                     b.invalidate();
-                    b.present();
+                    b.present(self.hat);
                     ShowWindow(self.buddy_hwnd, SW_SHOWNOACTIVATE);
                 }
                 None => {
@@ -828,7 +843,33 @@ impl App {
         self.chat_history.clear(); // a conversa recomeça no idioma novo
     }
 
+    /// Acessório de época: confere a data (e o seu aniversário) e redesenha se mudou.
+    unsafe fn update_hat(&mut self) {
+        let (day, ..) = clock();
+        let (month, dom) = (day / 100 % 100, day % 100);
+        let birthday = self.config.birthday == Some((dom, month));
+        let hat = if self.config.accessories { accessory::Hat::for_date(month, dom, birthday) } else { None };
+        if hat != self.hat {
+            self.hat = hat;
+            self.rendered = None;
+            if let Some(b) = self.buddy.as_mut() {
+                b.invalidate();
+            }
+            self.present();
+        }
+    }
+
     // --- conversa -----------------------------------------------------------
+
+    /// Liga ou desliga o Ctrl+Alt+M. `RegisterHotKey` só avisa quando essa
+    /// combinação é apertada — o app nunca vê o resto do teclado. Se outro
+    /// programa já usa o atalho, fica sem (e tudo segue funcionando).
+    unsafe fn sync_hotkey(&mut self) {
+        UnregisterHotKey(self.hwnd, HOTKEY_CHAT);
+        if self.config.chat_hotkey {
+            RegisterHotKey(self.hwnd, HOTKEY_CHAT, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, b'M' as u32);
+        }
+    }
 
     unsafe fn open_chat(&mut self) {
         if self.user_hidden {
@@ -1034,6 +1075,14 @@ impl App {
         self.config.birthday = new.birthday;
         self.config.quiet_in_meetings = new.quiet_in_meetings;
         self.config.memory = new.memory;
+        if new.accessories != self.config.accessories {
+            self.config.accessories = new.accessories;
+            self.update_hat();
+        }
+        if new.chat_hotkey != self.config.chat_hotkey {
+            self.config.chat_hotkey = new.chat_hotkey;
+            self.sync_hotkey();
+        }
         if new.theme != self.config.theme {
             apply_theme(new.theme);
         }
@@ -1105,6 +1154,25 @@ impl App {
     }
 
     /// Um mascote (o principal ou o amigo, `buddy`) alcançou o objeto.
+    /// O amigo chegou perto: se o principal está dormindo, cochila junto; senão os
+    /// dois comemoram e, às vezes, o principal cumprimenta o amigo.
+    unsafe fn on_friend(&mut self) {
+        let Some(b) = self.buddy.as_mut() else { return };
+        if self.mascot.sleeping() {
+            b.mascot.nap();
+            return;
+        }
+        b.mascot.cheer();
+        self.mascot.cheer();
+        let name = b.art.name.clone();
+        let quiet = self.companion.silenced(self.secs()) || self.bubble.topic.is_some();
+        if !quiet && self.rng.range(0, 100) < 35 {
+            let line = self.phrases.pick(Topic::Friend, &mut self.rng).replace("{amigo}", &name);
+            let text = self.companion.fill(&line, &self.art.name);
+            self.speak(Topic::Friend, Some(text));
+        }
+    }
+
     unsafe fn on_arrive(&mut self, buddy: bool) {
         let Some(toy) = self.toy.as_ref() else { return };
         let held = toy.prop.held;
@@ -1122,6 +1190,14 @@ impl App {
             Kind::Food if on_floor => {
                 self.remove_toy();
                 self.body_mut(buddy).eat();
+                // Dividem o petisco: o outro, se estiver pertinho e acordado, ganha um pedaço.
+                if let Some(b) = self.buddy.as_mut() {
+                    let (eater, other) = if buddy { (&b.mascot, &mut self.mascot) } else { (&self.mascot, &mut b.mascot) };
+                    let near = (eater.x - other.x).abs() < eater.size() * 3.0;
+                    if near && other.grounded() && !other.sleeping() {
+                        other.eat();
+                    }
+                }
                 self.companion.on_fed(self.secs());
                 if !buddy {
                     self.say(Topic::Yummy); // quem fala é o principal
@@ -1166,9 +1242,47 @@ impl App {
     unsafe fn remind(&mut self, i: usize) {
         let Some(r) = self.config.companion.reminders.get(i) else { return };
         match r.kind.topic() {
+            // Olhos e alongar: o balão convida para a pausa guiada.
+            Some(topic @ (Topic::Eyes | Topic::Stretch)) => {
+                let line = self.phrases.pick(topic, &mut self.rng).to_string();
+                let text = format!("{} {}", self.companion.fill(&line, &self.art.name), tr("(Clique e eu te guio!)"));
+                self.speak(topic, Some(text));
+            }
             Some(topic) => self.say(topic),
             None => self.speak(Topic::Reminder, Some(r.kind.label().to_string())),
         }
+    }
+
+    unsafe fn start_guide(&mut self, kind: guide::Kind) {
+        let g = guide::Guide::new(kind);
+        let text = g.text();
+        self.guide = Some(g);
+        self.speak(Topic::Guide, Some(text));
+        SetTimer(self.hwnd, TIMER_GUIDE, 1000, None);
+    }
+
+    unsafe fn on_guide_tick(&mut self) {
+        let Some(g) = self.guide.as_mut() else {
+            KillTimer(self.hwnd, TIMER_GUIDE);
+            return;
+        };
+        if g.tick() {
+            let text = g.text();
+            self.speak(Topic::Guide, Some(text));
+            return;
+        }
+        // Terminou: conta como lembrete atendido.
+        let topic = if g.kind == guide::Kind::Eyes { Topic::Eyes } else { Topic::Stretch };
+        self.stop_guide();
+        self.hide_bubble();
+        if let Some(reply) = self.companion.on_ack(topic) {
+            self.say(reply);
+        }
+    }
+
+    unsafe fn stop_guide(&mut self) {
+        self.guide = None;
+        KillTimer(self.hwnd, TIMER_GUIDE);
     }
 
     /// Mostra o balão com uma fala sorteada do tópico (ou com `text`, se vier).
@@ -1186,7 +1300,7 @@ impl App {
             Some(text) => text,
             None => {
                 let line = self.phrases.pick(topic, &mut self.rng);
-                companion::fill(line, &self.companion.stats, &self.art.name)
+                self.companion.fill(line, &self.art.name)
             }
         };
         self.mascot.talk();
@@ -1212,8 +1326,16 @@ impl App {
     unsafe fn on_bubble_click(&mut self) {
         let topic = self.bubble.topic;
         self.hide_bubble();
-        if let Some(reply) = topic.and_then(|t| self.companion.on_ack(t)) {
-            self.say(reply);
+        match topic {
+            // Clique durante a pausa guiada: encerra.
+            Some(Topic::Guide) => self.stop_guide(),
+            Some(Topic::Eyes) => self.start_guide(guide::Kind::Eyes),
+            Some(Topic::Stretch) => self.start_guide(guide::Kind::Stretch),
+            _ => {
+                if let Some(reply) = topic.and_then(|t| self.companion.on_ack(t)) {
+                    self.say(reply);
+                }
+            }
         }
     }
 
@@ -1285,7 +1407,7 @@ impl App {
             Grab::Buddy => {
                 if let Some(b) = self.buddy.as_mut() {
                     (b.mascot.x, b.mascot.y) = pos;
-                    b.present();
+                    b.present(self.hat);
                 }
             }
         }
@@ -1378,7 +1500,7 @@ impl App {
     }
 
     unsafe fn shutdown(&mut self) {
-        for id in [TIMER_ANIM, TIMER_WATCH, TIMER_BUBBLE, TIMER_PROP, TIMER_SENSE] {
+        for id in [TIMER_ANIM, TIMER_WATCH, TIMER_BUBBLE, TIMER_PROP, TIMER_SENSE, TIMER_GUIDE] {
             KillTimer(self.hwnd, id);
         }
         self.save_state();
@@ -1431,7 +1553,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         name: app.art.name.clone(),
         pixels: idle_pixels(&app.art),
         hearts: app.companion.hearts(),
-        stats: companion::fill(tr("Hoje: {juntos} juntos · {pausas}"), &app.companion.stats, &app.art.name),
+        stats: app.companion.fill(tr("Hoje: {juntos} juntos · {pausas}"), &app.art.name),
         mascots,
         current: packs.iter().position(|p| p.id == app.config.mascot).unwrap_or(usize::MAX),
         sizes: Size::ALL.map(Size::short),
@@ -1442,6 +1564,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         hidden: app.user_hidden,
         reminders_on: app.config.companion.reminders.iter().filter(|r| r.on).count(),
         water: app.companion.stats.water,
+        water_goal: app.companion.settings.water_goal,
         update: app.update.as_ref().map(|r| r.version.clone()),
     };
     flyout::open(hwnd, model, cursor());
@@ -1556,6 +1679,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             TIMER_BUBBLE => app.hide_bubble(),
             TIMER_PROP => app.on_prop_tick(),
             TIMER_SENSE => app.on_sense(),
+            TIMER_GUIDE => app.on_guide_tick(),
             _ => {}
         },
         WM_MOUSEACTIVATE => return MA_NOACTIVATE as LRESULT,
@@ -1649,7 +1773,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             apply_theme(app.config.theme);
         }
         WM_ENDSESSION if wp != 0 => app.save_state(), // Windows desligando
+        WM_HOTKEY if wp as i32 == HOTKEY_CHAT => run_action(hwnd, Action::Chat),
         WM_DESTROY => {
+            UnregisterHotKey(hwnd, HOTKEY_CHAT);
             app.shutdown();
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             PostQuitMessage(0);

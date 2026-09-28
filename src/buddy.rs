@@ -145,11 +145,14 @@ impl Buddy {
     }
 
     /// Como `App::present`: redesenha só quando o frame muda.
-    pub unsafe fn present(&mut self) {
+    pub unsafe fn present(&mut self, hat: Option<crate::accessory::Hat>) {
         let frame = (self.mascot.frame(), self.mascot.facing_left);
         let pos = (self.mascot.x.round() as i32, self.mascot.y.round() as i32);
         if self.rendered != Some(frame) {
             self.art.draw(frame.0, frame.1, self.draw_scale as usize, self.canvas.pixels());
+            if let Some(hat) = hat {
+                hat.draw(self.canvas.pixels(), self.art.size(), self.draw_scale as usize, frame.1);
+            }
             self.canvas.present(self.hwnd, (pos != self.shown_at).then_some(pos));
             self.rendered = Some(frame);
         } else if pos != self.shown_at {

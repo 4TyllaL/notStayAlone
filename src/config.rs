@@ -94,6 +94,10 @@ pub struct Config {
     pub memory: bool,
     pub theme: Theme,
     pub language: Language,
+    /// Ctrl+Alt+M abre a conversa (atalho só dessa combinação, sem ler o teclado).
+    pub chat_hotkey: bool,
+    /// Acessórios de época (gorro no Natal, chapéu de bruxa no Halloween...).
+    pub accessories: bool,
 }
 
 /// Claro, escuro ou o mesmo do Windows.
@@ -210,6 +214,8 @@ impl Config {
             memory: true,
             theme: Theme::Auto,
             language: Language::Auto,
+            chat_hotkey: true,
+            accessories: true,
         };
         // Config de antes dos plugins: vale o padrão (só a conversa nativa ligada).
         let mut plugins_saved = false;
@@ -242,6 +248,12 @@ impl Config {
                     }
                 }
                 "away_minutes" => config.companion.away_minutes = number.unwrap_or(5).clamp(1, 120),
+                "water_goal" => config.companion.water_goal = number.unwrap_or(8).min(30),
+                "focus_minutes" => config.companion.focus_minutes = number.unwrap_or(25).clamp(1, 180),
+                "break_minutes" => config.companion.break_minutes = number.unwrap_or(5).clamp(1, 60),
+                "focus_quiet" => config.companion.focus_holds_reminders = value != "off",
+                "chat_hotkey" => config.chat_hotkey = value != "off",
+                "accessories" => config.accessories = value != "off",
                 // reminder=on|30|Conferir o e-mail
                 "reminder" => {
                     let mut parts = value.splitn(3, '|');
@@ -319,13 +331,29 @@ impl Config {
              memory={}\n\
              # tema: auto | light | dark    idioma: auto | pt | en\n\
              theme={}\n\
-             language={}\n",
+             language={}\n\
+             # meta de copos d'água por dia (0 = sem meta)\n\
+             water_goal={}\n\
+             # foco (pomodoro): minutos de foco e de pausa; focus_quiet = lembretes esperam a pausa\n\
+             focus_minutes={}\n\
+             break_minutes={}\n\
+             focus_quiet={}\n\
+             # Ctrl+Alt+M abre a conversa: on | off\n\
+             chat_hotkey={}\n\
+             # acessórios de época no mascote (Natal, Halloween, aniversário...): on | off\n\
+             accessories={}\n",
             on_off(self.updates),
             on_off(self.quiet_in_meetings),
             self.buddy,
             on_off(self.memory),
             self.theme.key(),
-            self.language.key()
+            self.language.key(),
+            self.companion.water_goal,
+            self.companion.focus_minutes,
+            self.companion.break_minutes,
+            on_off(self.companion.focus_holds_reminders),
+            on_off(self.chat_hotkey),
+            on_off(self.accessories)
         );
         text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256\nplugins=\n";
         for e in &self.plugins {

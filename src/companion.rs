@@ -53,6 +53,13 @@ pub struct Settings {
     pub reminders: Vec<Reminder>,
     /// Minutos sem mexer no PC para contar como "saiu".
     pub away_minutes: u32,
+    /// Copos d'água por dia (0 = sem meta).
+    pub water_goal: u32,
+    /// Foco (pomodoro): minutos de foco e de pausa.
+    pub focus_minutes: u32,
+    pub break_minutes: u32,
+    /// Durante o foco, os lembretes esperam a pausa.
+    pub focus_holds_reminders: bool,
 }
 
 impl Default for Settings {
@@ -63,7 +70,7 @@ impl Default for Settings {
             .zip(defaults)
             .map(|(kind, (on, minutes))| Reminder { on, minutes, kind })
             .collect();
-        Settings { reminders, away_minutes: 5 }
+        Settings { reminders, away_minutes: 5, water_goal: 8, focus_minutes: 25, break_minutes: 5, focus_holds_reminders: true }
     }
 }
 
@@ -109,6 +116,38 @@ pub struct Stats {
     pub routine_said: u32,
 }
 
+/// Um dia que já passou, para a sequência da meta de água e o resumo da semana.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct DayRecord {
+    pub day: u32,
+    pub together_secs: u64,
+    pub breaks: u32,
+    pub water: u32,
+}
+
+/// Totais dos últimos 7 dias.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct WeekTotals {
+    pub days: u32,
+    pub together_secs: u64,
+    pub breaks: u32,
+    pub water: u32,
+}
+
+/// Quantos dias de histórico ficam guardados no `state.ini`.
+const HISTORY_DAYS: usize = 60;
+
+/// Dias corridos desde 1970-01-01 para uma data AAAAMMDD (calendário gregoriano).
+fn day_number(date: u32) -> i64 {
+    let (y, m, d) = ((date / 10000) as i64, (date / 100 % 100) as i64, (date % 100) as i64);
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
 const ROUTINE_BIRTHDAY: u32 = 1;
 const ROUTINE_MONDAY: u32 = 2;
 const ROUTINE_FRIDAY: u32 = 4;
@@ -122,8 +161,6 @@ impl Stats {
     }
 }
 
-pub const POMODORO_WORK: u64 = 25 * 60;
-pub const POMODORO_BREAK: u64 = 5 * 60;
 /// Intervalo mínimo entre dois lembretes, para nunca virar metralhadora.
 const REMINDER_GAP: u64 = 120;
 /// O afeto cai devagar (1 ponto por hora de uso), mas nunca abaixo disso.
@@ -138,6 +175,8 @@ const BATTERY_LOW: u8 = 20;
 pub struct Companion {
     pub settings: Settings,
     pub stats: Stats,
+    /// Dias anteriores (o mais antigo primeiro), sem hoje.
+    pub history: Vec<DayRecord>,
     pub affection: f32,
     away: bool,
     away_since: u64,
@@ -164,6 +203,7 @@ impl Companion {
             counters: vec![0; settings.reminders.len()],
             settings,
             stats: Stats::new(day),
+            history: Vec::new(),
             affection: 50.0,
             away: false,
             away_since: 0,
@@ -246,6 +286,7 @@ impl Companion {
     pub fn update(&mut self, now: &Now) -> Vec<Event> {
         let mut events = Vec::new();
         if now.day != self.stats.day {
+            self.archive_today();
             self.stats = Stats::new(now.day);
         }
         let away_secs = self.settings.away_minutes.max(1) as u64 * 60;
@@ -300,9 +341,9 @@ impl Companion {
         if let Some((on_break, ends)) = self.pomodoro {
             if now.secs >= ends {
                 let (topic, next) = if on_break {
-                    (Topic::PomodoroBack, POMODORO_WORK)
+                    (Topic::PomodoroBack, self.focus_secs())
                 } else {
-                    (Topic::PomodoroBreak, POMODORO_BREAK)
+                    (Topic::PomodoroBreak, self.break_secs())
                 };
                 self.pomodoro = Some((!on_break, now.secs + next));
                 events.push(Event::Say(topic));
@@ -311,6 +352,9 @@ impl Companion {
         }
 
         let quiet = self.silenced(now.secs) || now.hidden;
+        // No foco, os lembretes esperam a pausa (se você quiser assim).
+        let focusing = self.settings.focus_holds_reminders && matches!(self.pomodoro, Some((false, _)));
+        let busy = now.busy || focusing;
         for (i, r) in self.settings.reminders.iter().enumerate() {
             if !r.on || r.minutes == 0 {
                 self.counters[i] = 0;
@@ -323,7 +367,7 @@ impl Companion {
                 self.counters[i] = 0; // descarta, sem acumular para depois
                 continue;
             }
-            if now.busy || self.last_reminder.is_some_and(|t| now.secs < t + REMINDER_GAP) {
+            if busy || self.last_reminder.is_some_and(|t| now.secs < t + REMINDER_GAP) {
                 continue; // espera o momento certo
             }
             self.counters[i] = 0;
@@ -331,7 +375,7 @@ impl Companion {
             events.push(Event::Remind(i));
             return events;
         }
-        if quiet || now.busy {
+        if quiet || busy {
             return events;
         }
         // Rotina: no máximo uma fala por tema por dia, sem atropelar os lembretes.
@@ -370,7 +414,7 @@ impl Companion {
         }
         let candidates = [
             (ROUTINE_BIRTHDAY, now.birthday && now.hour >= 7, Topic::Birthday),
-            (ROUTINE_MONDAY, now.weekday == 1 && (7..12).contains(&now.hour), Topic::Monday),
+            (ROUTINE_MONDAY, now.weekday == 1 && (7..12).contains(&now.hour), self.monday_topic()),
             (ROUTINE_FRIDAY, now.weekday == 5 && now.hour >= 15, Topic::Friday),
             (ROUTINE_WEEKEND, matches!(now.weekday, 0 | 6) && now.hour >= 10 && self.stats.together_secs >= 1800, Topic::Weekend),
         ];
@@ -406,19 +450,77 @@ impl Companion {
         }
     }
 
-    /// Bebeu um copo d'água (pelo balão, pelo painel ou por `--agua`).
+    /// Bebeu um copo d'água (pelo balão, pelo painel ou por `--agua`). Ao bater a
+    /// meta do dia, ele comemora (e conta a sequência de dias).
     pub fn drank_water(&mut self) -> Topic {
         self.stats.water += 1;
         self.bump(2.0);
+        if self.settings.water_goal > 0 && self.stats.water == self.settings.water_goal {
+            self.bump(3.0);
+            return if self.water_streak() >= 2 { Topic::Streak } else { Topic::WaterGoal };
+        }
         Topic::Thanks
+    }
+
+    /// Dias de uso seguidos batendo a meta de água (hoje conta se já bateu).
+    pub fn water_streak(&self) -> u32 {
+        let goal = self.settings.water_goal;
+        if goal == 0 {
+            return 0;
+        }
+        let today = (self.stats.water >= goal) as u32;
+        today + self.history.iter().rev().take_while(|r| r.water >= goal).count() as u32
+    }
+
+    /// Totais dos 7 dias antes de hoje (`None` com menos de 2 dias de uso).
+    pub fn week(&self) -> Option<WeekTotals> {
+        let today = day_number(self.stats.day);
+        let mut week = WeekTotals::default();
+        for r in self.history.iter().filter(|r| (1..=7).contains(&(today - day_number(r.day)))) {
+            week.days += 1;
+            week.together_secs += r.together_secs;
+            week.breaks += r.breaks;
+            week.water += r.water;
+        }
+        (week.days >= 2).then_some(week)
+    }
+
+    /// Na segunda de manhã: o resumo da semana, se houver, senão a fala de segunda.
+    fn monday_topic(&self) -> Topic {
+        if self.week().is_some() {
+            Topic::Week
+        } else {
+            Topic::Monday
+        }
+    }
+
+    /// Guarda o dia que acabou no histórico (se você usou o PC nele).
+    fn archive_today(&mut self) {
+        let s = &self.stats;
+        let used = s.together_secs > 0 || s.water > 0 || s.breaks > 0;
+        if s.day == 0 || !used || self.history.iter().any(|r| r.day == s.day) {
+            return;
+        }
+        self.history.push(DayRecord { day: s.day, together_secs: s.together_secs, breaks: s.breaks, water: s.water });
+        self.history.sort_by_key(|r| r.day);
+        let excess = self.history.len().saturating_sub(HISTORY_DAYS);
+        self.history.drain(..excess);
     }
 
     pub fn pomodoro_active(&self) -> bool {
         self.pomodoro.is_some()
     }
 
+    fn focus_secs(&self) -> u64 {
+        self.settings.focus_minutes.clamp(1, 180) as u64 * 60
+    }
+
+    fn break_secs(&self) -> u64 {
+        self.settings.break_minutes.clamp(1, 60) as u64 * 60
+    }
+
     pub fn start_pomodoro(&mut self, secs: u64) {
-        self.pomodoro = Some((false, secs + POMODORO_WORK));
+        self.pomodoro = Some((false, secs + self.focus_secs()));
     }
 
     pub fn stop_pomodoro(&mut self) {
@@ -450,9 +552,20 @@ impl Companion {
 
     pub fn save_string(&self) -> String {
         let s = &self.stats;
+        let history: Vec<String> =
+            self.history.iter().map(|r| format!("{}:{}:{}:{}", r.day, r.together_secs, r.breaks, r.water)).collect();
         format!(
-            "day={}\ntogether={}\nbreaks={}\nwater={}\npets={}\nsummary={}\nroutine={}\naffection={:.1}\n",
-            s.day, s.together_secs, s.breaks, s.water, s.pets, s.summary_shown as u8, s.routine_said, self.affection
+            "day={}\ntogether={}\nbreaks={}\nwater={}\npets={}\nsummary={}\nroutine={}\naffection={:.1}\n\
+             # dias anteriores: data:segundos juntos:pausas:copos d'água\nhistory={}\n",
+            s.day,
+            s.together_secs,
+            s.breaks,
+            s.water,
+            s.pets,
+            s.summary_shown as u8,
+            s.routine_said,
+            self.affection,
+            history.join(",")
         )
     }
 
@@ -471,6 +584,25 @@ impl Companion {
                 "pets" => saved.pets = n as u32,
                 "summary" => saved.summary_shown = n != 0,
                 "routine" => saved.routine_said = n as u32,
+                "history" => {
+                    self.history = value
+                        .split(',')
+                        .filter_map(|entry| {
+                            let mut parts = entry.split(':').map(|p| p.trim().parse::<u64>().ok());
+                            let (day, together, breaks, water) = (parts.next()??, parts.next()??, parts.next()??, parts.next()??);
+                            (19700101..=99991231).contains(&day).then_some(DayRecord {
+                                day: day as u32,
+                                together_secs: together.min(24 * 3600),
+                                breaks: breaks.min(1000) as u32,
+                                water: water.min(1000) as u32,
+                            })
+                        })
+                        .collect();
+                    self.history.sort_by_key(|r| r.day);
+                    self.history.dedup_by_key(|r| r.day);
+                    let excess = self.history.len().saturating_sub(HISTORY_DAYS);
+                    self.history.drain(..excess);
+                }
                 "affection" => {
                     if let Ok(a) = value.parse::<f32>() {
                         self.affection = a.clamp(0.0, 100.0);
@@ -481,7 +613,28 @@ impl Companion {
         }
         if saved.day == self.stats.day {
             self.stats = saved;
+        } else if saved.day < self.stats.day {
+            // O app não estava aberto na virada do dia: o dia salvo vai para o histórico.
+            let today = std::mem::replace(&mut self.stats, saved);
+            self.archive_today();
+            self.stats = today;
         }
+    }
+
+    /// Preenche {nome}, {juntos}, {pausas}, {agua}, {meta}, {sequencia} e os da
+    /// semana ({juntos_semana}, {pausas_semana}, {agua_semana}).
+    pub fn fill(&self, text: &str, name: &str) -> String {
+        let week = self.week().unwrap_or_default();
+        let s = &self.stats;
+        text.replace("{nome}", name)
+            .replace("{juntos_semana}", &duration(week.together_secs))
+            .replace("{pausas_semana}", &breaks(week.breaks))
+            .replace("{agua_semana}", &water(week.water))
+            .replace("{juntos}", &duration(s.together_secs))
+            .replace("{pausas}", &breaks(s.breaks))
+            .replace("{agua}", &water(s.water))
+            .replace("{meta}", &self.settings.water_goal.to_string())
+            .replace("{sequencia}", &self.water_streak().to_string())
     }
 }
 
@@ -517,24 +670,29 @@ impl TypingSensor {
     }
 }
 
-/// Preenche {nome}, {juntos}, {pausas} e {agua}.
-pub fn fill(text: &str, s: &Stats, name: &str) -> String {
-    let (h, m) = (s.together_secs / 3600, s.together_secs % 3600 / 60);
-    let together = if h > 0 { format!("{h}h{m:02}min") } else { format!("{m}min") };
-    let breaks = match s.breaks {
+fn duration(secs: u64) -> String {
+    let (h, m) = (secs / 3600, secs % 3600 / 60);
+    if h > 0 {
+        format!("{h}h{m:02}min")
+    } else {
+        format!("{m}min")
+    }
+}
+
+fn breaks(n: u32) -> String {
+    match n {
         0 => tr("nenhuma pausa").to_string(),
         1 => tr("1 pausa").to_string(),
         n => lang::fill(tr("{} pausas"), &[&n]),
-    };
-    let water = match s.water {
+    }
+}
+
+fn water(n: u32) -> String {
+    match n {
         0 => tr("nenhuma vez").to_string(),
         1 => tr("1 vez").to_string(),
         n => lang::fill(tr("{} vezes"), &[&n]),
-    };
-    text.replace("{nome}", name)
-        .replace("{juntos}", &together)
-        .replace("{pausas}", &breaks)
-        .replace("{agua}", &water)
+    }
 }
 
 #[cfg(test)]
@@ -646,7 +804,7 @@ mod tests {
         c.settings.reminders[0].on = false;
         c.settings.reminders[1].on = false;
         c.start_pomodoro(0);
-        let events = active(&mut c, 0, POMODORO_WORK + POMODORO_BREAK + 10);
+        let events = active(&mut c, 0, (25 + 5) * 60 + 10);
         assert_eq!(events, vec![Event::Say(Topic::PomodoroBreak), Event::Say(Topic::PomodoroBack)]);
     }
 
@@ -714,8 +872,118 @@ mod tests {
 
     #[test]
     fn fill_placeholders() {
-        let s = Stats { together_secs: 3 * 3600 + 7 * 60, breaks: 1, water: 0, ..Stats::new(DAY) };
-        assert_eq!(fill("{nome}: {juntos} {pausas} {agua}", &s, "Lance"), "Lance: 3h07min 1 pausa nenhuma vez");
+        let mut c = Companion::new(settings(), DAY);
+        c.stats = Stats { together_secs: 3 * 3600 + 7 * 60, breaks: 1, water: 0, ..Stats::new(DAY) };
+        assert_eq!(c.fill("{nome}: {juntos} {pausas} {agua} (meta {meta})", "Lance"), "Lance: 3h07min 1 pausa nenhuma vez (meta 8)");
+    }
+
+    fn record(day: u32, water: u32) -> DayRecord {
+        DayRecord { day, together_secs: 3600, breaks: 2, water }
+    }
+
+    #[test]
+    fn day_numbers_count_real_calendar_days() {
+        assert_eq!(day_number(19700101), 0);
+        assert_eq!(day_number(20260301) - day_number(20260228), 1);
+        assert_eq!(day_number(20240301) - day_number(20240228), 2); // ano bissexto
+        assert_eq!(day_number(20270101) - day_number(20261231), 1);
+    }
+
+    #[test]
+    fn reaching_the_water_goal_is_celebrated_once() {
+        let mut s = settings();
+        s.water_goal = 3;
+        let mut c = Companion::new(s, DAY);
+        assert_eq!(c.drank_water(), Topic::Thanks);
+        assert_eq!(c.drank_water(), Topic::Thanks);
+        assert_eq!(c.drank_water(), Topic::WaterGoal);
+        assert_eq!(c.drank_water(), Topic::Thanks);
+    }
+
+    #[test]
+    fn a_streak_of_days_is_celebrated() {
+        let mut s = settings();
+        s.water_goal = 2;
+        let mut c = Companion::new(s, DAY);
+        c.history = vec![record(20260924, 1), record(20260925, 2), record(20260926, 5)];
+        assert_eq!(c.water_streak(), 2); // hoje ainda não bateu
+        c.drank_water();
+        assert_eq!(c.drank_water(), Topic::Streak);
+        assert_eq!(c.water_streak(), 3);
+        assert_eq!(c.fill("{sequencia} dias", "x"), "3 dias");
+    }
+
+    #[test]
+    fn no_goal_no_streak() {
+        let mut s = settings();
+        s.water_goal = 0;
+        let mut c = Companion::new(s, DAY);
+        c.history = vec![record(20260926, 9)];
+        assert_eq!(c.drank_water(), Topic::Thanks);
+        assert_eq!(c.water_streak(), 0);
+    }
+
+    #[test]
+    fn a_new_day_goes_to_history_and_survives_a_restart() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        active(&mut c, 0, 600);
+        c.drank_water();
+        let mut n = now(700, 0);
+        n.day = DAY + 1;
+        c.update(&n);
+        assert_eq!(c.history, vec![DayRecord { day: DAY, together_secs: c.history[0].together_secs, breaks: 0, water: 1 }]);
+        assert!(c.history[0].together_secs >= 590);
+        let mut d = Companion::new(quiet_settings(), DAY + 1);
+        d.load_string(&c.save_string());
+        assert_eq!(d.history, c.history);
+    }
+
+    #[test]
+    fn a_day_the_app_was_closed_at_midnight_is_kept() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        c.drank_water();
+        let mut d = Companion::new(quiet_settings(), DAY + 2);
+        d.load_string(&c.save_string());
+        assert_eq!(d.history.iter().map(|r| (r.day, r.water)).collect::<Vec<_>>(), vec![(DAY, 1)]);
+        assert_eq!(d.stats.water, 0);
+    }
+
+    #[test]
+    fn broken_history_lines_are_ignored() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        c.load_string("history=20260920:3600:1:4,lixo,20260921:x:1:1,20260922:99999999:1:2\n");
+        assert_eq!(c.history.len(), 2);
+        assert_eq!(c.history[1].together_secs, 24 * 3600);
+    }
+
+    #[test]
+    fn monday_brings_the_week_summary() {
+        // 28/09/2026 é segunda.
+        let mut c = Companion::new(quiet_settings(), 20260928);
+        c.history = vec![record(20260920, 1), record(20260922, 4), record(20260925, 6)];
+        let week = c.week().unwrap();
+        assert_eq!((week.days, week.water, week.breaks), (2, 10, 4)); // 20/09 ficou fora (8 dias atrás)
+        let mut n = now(10, 0);
+        n.day = 20260928;
+        n.weekday = 1;
+        n.hour = 9;
+        assert_eq!(c.update(&n), vec![Event::Say(Topic::Week)]);
+        assert_eq!(c.fill("{agua_semana}", "x"), "10 vezes");
+    }
+
+    #[test]
+    fn focus_holds_reminders_until_the_break() {
+        let mut s = settings();
+        s.focus_minutes = 50;
+        s.break_minutes = 10;
+        let mut c = Companion::new(s, DAY);
+        c.start_pomodoro(0);
+        // A água (45 min) chega durante o foco: espera.
+        let events = active(&mut c, 0, 50 * 60 - 10);
+        assert!(!events.iter().any(|e| matches!(e, Event::Remind(_))), "{events:?}");
+        let events = active(&mut c, 50 * 60 - 10, 50 * 60 + 60);
+        assert!(events.contains(&Event::Say(Topic::PomodoroBreak)), "{events:?}");
+        assert!(events.contains(&Event::Remind(0)), "{events:?}");
     }
 
     #[test]

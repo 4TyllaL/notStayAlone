@@ -7,6 +7,9 @@
 #   {juntos}  tempo que vocês passaram juntos hoje (ex.: 3h12min)
 #   {pausas}  ex.: "2 pausas" / "nenhuma pausa"
 #   {agua}    ex.: "3 vezes" / "nenhuma vez"
+#   {meta}     a meta de copos d'água do dia; {sequencia} dias seguidos batendo a meta
+#   {juntos_semana}, {pausas_semana}, {agua_semana}  o mesmo, somando os últimos 7 dias
+#   {amigo}    no [amigo]: o nome do amigo na tela
 #
 # Cada mascote pode ter falas próprias (o phrases.txt da pasta dele),
 # que substituem estas só nos tópicos que definir.
@@ -156,3 +159,23 @@ Fim de semana é pra aproveitar. Que tal uma pausa lá fora?
 Faz umas 3 horas que você não para. Que tal uma pausa de verdade?
 Três horas direto! Levanta um pouquinho, bebe uma água, volta com energia.
 Ei, você não parou desde cedo. Seus olhos e suas costas agradecem uma pausa!
+
+[meta_agua]
+Meta batida! {meta} copos de água hoje. Seu corpo agradece!
+Isso aí! Hoje você bebeu os {meta} copos. Tô feliz!
+Meta de água cumprida! Que orgulho.
+
+[sequencia]
+Meta batida de novo! São {sequencia} dias seguidos.
+{sequencia} dias seguidos bebendo água direitinho. Incrível!
+Olha a sequência: {sequencia} dias batendo a meta!
+
+[semana]
+Bom dia! Semana passada foram {juntos_semana} juntos, {pausas_semana} e água {agua_semana}.
+Nova semana! Na última a gente ficou {juntos_semana} junto e você bebeu água {agua_semana}.
+
+[amigo]
+Oi, {amigo}! Que bom te ver.
+{amigo} veio me visitar!
+Bora brincar, {amigo}?
+Olha quem chegou: {amigo}!
