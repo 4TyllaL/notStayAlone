@@ -8,7 +8,7 @@ escolha em Configurações).
 
 | Métrica | Meta | Medido |
 |---|---|---|
-| Executável | < 5 MB | ~780 KB — um único `.exe`, conversa com IA inclusa |
+| Executável | < 5 MB | ~805 KB — um único `.exe`, conversa com IA inclusa |
 | Memória privada | < 20 MB | ~2,3 MB |
 | CPU | ~0% | ~0,03% da máquina (0,05–0,4% de um núcleo: parado → andando) |
 
