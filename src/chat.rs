@@ -23,6 +23,7 @@ use windows_sys::Win32::{
 };
 
 use crate::{
+    ai::json::quote,
     mailbox,
     win::{clean_line, text_of, ui_font, w},
 };
@@ -86,23 +87,6 @@ pub fn payload(system: &str, history: &[Turn], max_tokens: Option<u32>) -> Strin
         .collect();
     let extra = max_tokens.map_or(String::new(), |n| format!(",\"max_tokens\":{n}"));
     format!("{{\"system\":{},\"messages\":[{}]{extra}}}", quote(system), messages.join(","))
-}
-
-/// `s` como string JSON (com aspas).
-pub fn quote(s: &str) -> String {
-    let mut out = String::from("\"");
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out + "\""
 }
 
 /// Corta a resposta num tamanho que cabe no balão (e tira caracteres de controle).

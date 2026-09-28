@@ -26,13 +26,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "stayalone-chat"
-version = "1.0.0"
-dependencies = [
- "windows-sys",
-]
-
-[[package]]
 name = "windows-sys"
 version = "0.59.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

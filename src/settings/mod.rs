@@ -422,7 +422,7 @@ unsafe fn build(hwnd: HWND) {
         0,
         "• Clique no mascote para fazer carinho; arraste para carregar e arremessar.\n\
          • Botão direito nele (ou clique no ícone da bandeja) abre o painel: brincar,\n   conversar, trocar de mascote, silenciar...\n\
-         • Atalhos do Windows podem usar: StayAlone.exe --bolinha, --petisco,\n   --conversar e --configurar.",
+         • Atalhos do Windows podem usar: dontStayAlone.exe --bolinha, --petisco,\n   --conversar e --configurar.",
         456,
         104
     );
@@ -842,23 +842,13 @@ unsafe fn on_chat_command(hwnd: HWND, id: i32) {
             if st.busy.is_some() || !save_chat(hwnd) {
                 return;
             }
-            let Some(plugin) = native_plugin(hwnd, IDC_TEST_RESULT) else { return };
+            let plugin = Plugin::native();
             st.busy = Some(Busy::Test);
             set_text(hwnd, IDC_TEST_RESULT, "Testando...");
             plugins::request(hwnd, WM_CHAT_REPLY, &plugin, None, hello_payload(), |reply| reply);
         }
         _ => {}
     }
-}
-
-/// O plugin de IA do app (usado pelo "Testar conversa" e pelo "Criar com IA").
-unsafe fn native_plugin(hwnd: HWND, status: i32) -> Option<Plugin> {
-    let plugin = Plugin::native();
-    if !plugin.program.is_file() {
-        set_text(hwnd, status, "Falta o stayalone-chat.exe ao lado do StayAlone.exe.");
-        return None;
-    }
-    Some(plugin)
 }
 
 fn hello_payload() -> String {
@@ -1063,7 +1053,7 @@ unsafe fn on_maker_command(hwnd: HWND, id: i32, code: u32) {
             if !save_chat(hwnd) {
                 return;
             }
-            let Some(plugin) = native_plugin(hwnd, IDC_AI_STATUS) else { return };
+            let plugin = Plugin::native();
             st.busy = Some(Busy::Draw);
             set_text(hwnd, IDC_AI_STATUS, "Desenhando... isso pode levar alguns segundos.");
             let payload = chat::payload(chat::DRAW_PROMPT, &[(true, description)], Some(4096));

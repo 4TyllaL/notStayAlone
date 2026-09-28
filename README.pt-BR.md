@@ -7,24 +7,25 @@ Um mascote em pixel art que faz companhia na área de trabalho — feito para se
 
 | Métrica | Meta | Medido |
 |---|---|---|
-| Executável | < 5 MB | ~580 KB (+ plugin de conversa opcional, ~310 KB) |
+| Executável | < 5 MB | ~650 KB — um único `.exe`, conversa com IA inclusa |
 | Memória privada | < 20 MB | ~2,3 MB |
 | CPU | ~0% | ~0,03% da máquina (0,05–0,4% de um núcleo: parado → andando) |
 
 ## Baixar
 
-Baixe o **[`StayAlone-v1.0.0-windows-x64.zip`](https://github.com/4TyllaL/notStayAlone/releases/latest)**
-na última versão, extraia onde quiser e abra o `StayAlone.exe` (Windows 10/11, 64 bits). Deixe o
-`stayalone-chat.exe` na mesma pasta se quiser conversar com a IA. Sem instalador; nada é gravado
-fora de `%APPDATA%\StayAlone`.
+Baixe o **[`dontStayAlone.exe`](https://github.com/4TyllaL/notStayAlone/releases/latest)** na
+última versão e abra (Windows 10/11, 64 bits). Esse arquivo único é o app inteiro, conversa com IA
+inclusa. Sem instalador; nada é gravado fora de `%APPDATA%\StayAlone`.
 
-Os executáveis ainda não têm assinatura digital, então o SmartScreen pode avisar na primeira vez
-(*Mais informações → Executar assim mesmo*). Cada versão traz um `SHA256SUMS.txt` para conferir os
-arquivos.
+> Por que *dont*StayAlone? O app se chama **!StayAlone**, mas o GitHub tira o `!` do nome dos arquivos.
+
+O executável ainda não tem assinatura digital, então o SmartScreen pode avisar na primeira vez
+(*Mais informações → Executar assim mesmo*). O GitHub mostra o SHA-256 do arquivo ao lado do
+download.
 
 ## Configurações
 
-Painel → **Configurações** (ou `StayAlone.exe --configurar`). A janela tem uma barra lateral
+Painel → **Configurações** (ou `dontStayAlone.exe --configurar`). A janela tem uma barra lateral
 com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
 
 - **Geral:** mascote, tamanho (extra pequeno a grande), velocidade, tempo para
@@ -46,9 +47,8 @@ Botão direito → **Conversar com ...** (ou `--conversar`): uma caixinha aparec
 acima dele; Enter envia, Esc fecha. Ele responde no balão, com a personalidade
 dele e lembrando das últimas mensagens.
 
-Quem responde é um **plugin** separado (`stayalone-chat.exe`, ao lado do app), que
-fala com qualquer API no **padrão OpenAI** (`/chat/completions`). O padrão é o
-**Gemini**:
+Quem responde é o plugin de conversa **nativo**, que fala com qualquer API no **padrão
+OpenAI** (`/chat/completions`). O padrão é o **Gemini**:
 
 1. Crie uma chave em <https://aistudio.google.com/apikey>.
 2. Cole em **Configurações → Conversa**. Ela vai para o Gerenciador de Credenciais do
@@ -62,8 +62,8 @@ setx GEMINI_API_KEY "sua-chave"
 Troque de provedor (OpenAI, OpenRouter, Ollama local...) na mesma aba; fica salvo em
 `%APPDATA%\StayAlone\chat.ini` (só `api_base`, `model` e `api_key_env`, com exemplos).
 A chave só viaja por **HTTPS** (TLS 1.2+); `http://` é aceito apenas para serviços no
-seu próprio PC, como o Ollama. Sem o plugin, nada de rede é usado: o app principal
-não tem código de HTTP.
+seu próprio PC, como o Ollama. O processo do mascote nunca usa a rede: ao conversar, o app
+abre uma segunda cópia de si mesmo (`dontStayAlone.exe --ia`), que faz o pedido e fecha.
 
 ## Plugins
 
@@ -154,7 +154,7 @@ registrada. Detalhes de segurança em [`SECURITY.md`](SECURITY.md).
 **Linha de comando** — útil para atalhos do Windows; funciona com o app já aberto:
 
 ```bash
-StayAlone.exe --bolinha
+dontStayAlone.exe --bolinha
 ```
 
 Também: `--petisco`, `--resumo` e `--esconder` (alterna esconder/mostrar).
@@ -164,15 +164,15 @@ Também: `--petisco`, `--resumo` e `--esconder` (alterna esconder/mostrar).
 Requer Rust (toolchain `stable-x86_64-pc-windows-gnu` ou MSVC).
 
 ```bash
-cargo build --release --workspace
+cargo build --release
 ```
 
-Gera `target/release/StayAlone.exe` (um único arquivo, com os quatro mascotes, o ícone e o
-manifesto embutidos) e o plugin `stayalone-chat.exe`. O ícone é desenhado na compilação a
+Gera `target/release/dontStayAlone.exe` (um único arquivo, com os quatro mascotes, a conversa
+com IA, o ícone e o manifesto embutidos). O ícone é desenhado na compilação a
 partir do sprite do Calcifer (`build.rs`), sem ferramentas externas.
 
 ```bash
-cargo test --workspace
+cargo test
 ```
 
 ## Personalizar e criar mascotes (mods)
@@ -201,7 +201,7 @@ cargo test --workspace
   (60 fps só durante quedas e bolinha em movimento, 10 fps normal, ~1,4 fps dormindo,
   tudo parado quando escondido).
 - Balão e objetos só ocupam memória enquanto estão na tela.
-- Sem hooks de teclado/mouse globais; rede só no plugin de conversa, e só quando você conversa.
+- Sem hooks de teclado/mouse globais; rede só no processo `--ia`, e só quando você conversa.
 - Janelas de configurações e conversa, fontes e bitmaps existem só enquanto estão abertos
   (sem vazamento de objetos GDI/USER, conferido abrindo e fechando repetidas vezes).
 - Enquanto você digita, ele não se move nem abre balões: mover janelas faz o Windows
@@ -234,6 +234,6 @@ src/win.rs             utilitários Win32 (texto, fontes, limpeza de strings)
 src/settings/mod.rs    janela de configurações (barra lateral, cartões, botões)
 src/settings/editor.rs editor de pixels e paleta da aba "Criar mascote"
 build.rs               ícone, manifesto e versão do .exe
-plugins/chat/          plugin de conversa (API padrão OpenAI via WinHTTP, JSON mínimo)
+src/ai/                conversa com IA (API padrão OpenAI via WinHTTP, JSON mínimo), roda como --ia
 assets/                mascotes, objetos, falas e o plugin de exemplo
 ```

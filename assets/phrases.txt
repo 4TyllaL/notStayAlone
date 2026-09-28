@@ -12,7 +12,7 @@
 # que substituem estas só nos tópicos que definir.
 #
 # Dica: coloque uma cópia editada como "phrases.txt" ao lado do
-# StayAlone.exe para mudar as falas padrão sem recompilar.
+# dontStayAlone.exe para mudar as falas padrão sem recompilar.
 
 [bom_dia]
 Bom dia! Vamos com calma hoje.

@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
-#![allow(non_snake_case)] // nome do binário: StayAlone.exe
+#![allow(non_snake_case)] // nome do binário: dontStayAlone.exe
 
+mod ai;
 mod bubble;
 mod chat;
 mod companion;
@@ -73,7 +74,7 @@ const SAVE_EVERY_SECS: u64 = 300;
 const TYPING_QUIET_MS: u32 = 2500;
 /// Mouse na janela do objeto, repassado para a do mascote (wparam = mensagem original).
 const WM_PROP_MOUSE: u32 = WM_APP + 3;
-/// Comando vindo de outra instância (`StayAlone.exe --bolinha`); wparam = id do menu.
+/// Comando vindo de outra instância (`dontStayAlone.exe --bolinha`); wparam = id do menu.
 const WM_REMOTE: u32 = WM_APP + 4;
 /// Um plugin de avisos respondeu (`(id, Reply)` no `mailbox`).
 const WM_PLUGIN_SAY: u32 = WM_APP + 9;
@@ -92,6 +93,10 @@ const COMMANDS: [(&str, Action); 6] = [
 ];
 
 fn main() {
+    // Aberto por ele mesmo para conversar com a IA: sem janela, só stdin → stdout.
+    if std::env::args().nth(1).as_deref() == Some(ai::ARG) {
+        std::process::exit(ai::serve());
+    }
     let command = std::env::args().nth(1).and_then(|arg| COMMANDS.iter().position(|(a, _)| *a == arg));
     unsafe {
         let _instance = CreateMutexW(null(), 0, w("Local\\StayAlone.Instance").as_ptr());

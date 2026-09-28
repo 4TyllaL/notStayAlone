@@ -26,14 +26,13 @@ use std::{
 
 use windows_sys::Win32::{Foundation::HWND, System::SystemInformation::GetSystemDirectoryW};
 
-use crate::{chat::quote, config::read_file, mailbox, sha256, win::clean_line};
+use crate::{ai::{self, json::quote}, config::read_file, mailbox, sha256, win::clean_line};
 
 /// Resposta de um plugin: o texto, ou a mensagem de erro.
 pub type Reply = Result<String, String>;
 
-/// O plugin de conversa com IA que vem com o app (`stayalone-chat.exe`).
+/// O plugin de conversa com IA que vem com o app: o próprio .exe, no modo `--ia`.
 pub const NATIVE_ID: &str = "nativo";
-const NATIVE_EXE: &str = "stayalone-chat.exe";
 const MANIFEST: &str = "plugin.ini";
 const MAX_PLUGINS: usize = 50;
 /// Programas maiores que isso não são aceitos (a impressão digital lê o arquivo todo).
@@ -108,7 +107,7 @@ pub enum Status {
 
 impl Plugin {
     pub fn native() -> Plugin {
-        let exe = std::env::current_exe().map(|e| e.with_file_name(NATIVE_EXE)).unwrap_or_default();
+        let exe = std::env::current_exe().unwrap_or_default();
         Plugin {
             id: NATIVE_ID.into(),
             name: "Conversa com IA (nativo)".into(),
@@ -154,6 +153,10 @@ impl Plugin {
         let mut command = if script {
             let mut c = Command::new(system_dir().join(r"WindowsPowerShell\v1.0\powershell.exe"));
             c.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(&self.program);
+            c
+        } else if self.is_native() {
+            let mut c = Command::new(&self.program);
+            c.arg(ai::ARG);
             c
         } else {
             Command::new(&self.program)

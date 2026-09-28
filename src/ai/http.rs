@@ -24,7 +24,7 @@ use windows_sys::{
     },
 };
 
-use crate::wide;
+use crate::win::w as wide;
 
 /// Respostas maiores que isso são recusadas: a de uma conversa tem 1–3 KB (o
 /// balão mostra 350 caracteres) e a de um desenho da IA, uns 4 KB.

@@ -9,8 +9,8 @@ funcionais (SFRs). É uma análise inspirada no método, **não uma certificaç�
 
 | Parte | O que faz | Toca em rede? |
 |---|---|---|
-| `StayAlone.exe` | mascote, lembretes, configurações, criador de mascotes | não (não tem código HTTP) |
-| `stayalone-chat.exe` | plugin de conversa (API padrão OpenAI) | sim, só quando você conversa |
+| `dontStayAlone.exe` | mascote, lembretes, configurações, criador de mascotes | não: o processo do mascote nunca usa a rede |
+| `dontStayAlone.exe --ia` | conversa com IA (API padrão OpenAI), num processo separado e de vida curta | sim, só quando você conversa |
 | Plugins de terceiros | programas que você liga na aba Plugins | o que o plugin fizer (fora do TOE) |
 
 Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
@@ -54,7 +54,7 @@ Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
 
 ## Riscos residuais (o que ainda não está coberto)
 
-- **Sem assinatura digital (Authenticode).** Para distribuir, assine os dois `.exe`: o
+- **Sem assinatura digital (Authenticode).** Para distribuir, assine o `.exe`: o
   Windows SmartScreen confia mais e dá para detectar adulteração.
 - **Sem Control Flow Guard.** A toolchain GNU não gera CFG; compilar com MSVC
   (`-C control-flow-guard`) adiciona essa proteção.
@@ -70,7 +70,7 @@ Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
 ## Como verificar
 
 ```bash
-cargo test --workspace
+cargo test
 ```
 
 Os testes cobrem, entre outros: mensagens forjadas (`mailbox`), endereços HTTP proibidos,

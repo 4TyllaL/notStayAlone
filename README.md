@@ -15,19 +15,20 @@ on the Win32 API, with no UI framework.
 
 | | Target | Measured |
 |---|---|---|
-| Executable | < 5 MB | ~630 KB (+ optional chat plugin, ~310 KB) |
+| Executable | < 5 MB | ~650 KB — a single `.exe`, AI chat included |
 | Private memory | < 20 MB | ~2–4 MB |
 | CPU | ~0% | ~0.03% of the machine |
 
 ## Download
 
-Grab **[`StayAlone-v1.0.0-windows-x64.zip`](https://github.com/4TyllaL/notStayAlone/releases/latest)**
-from the latest release, extract it anywhere and open `StayAlone.exe` (Windows 10/11, 64-bit).
-Keep `stayalone-chat.exe` in the same folder if you want the AI chat. No installer, nothing
-written outside `%APPDATA%\StayAlone`.
+Grab **[`dontStayAlone.exe`](https://github.com/4TyllaL/notStayAlone/releases/latest)** from the
+latest release and run it (Windows 10/11, 64-bit). That single file is the whole app, AI chat
+included. No installer, nothing written outside `%APPDATA%\StayAlone`.
 
-The binaries are not code-signed yet, so Windows SmartScreen may warn on first run
-(*More info → Run anyway*). Each release ships a `SHA256SUMS.txt` so you can check the files.
+> Why *dont*StayAlone? The app is **!StayAlone**, but GitHub strips the `!` from file names.
+
+The binary is not code-signed yet, so Windows SmartScreen may warn on first run
+(*More info → Run anyway*). GitHub shows the file's SHA-256 next to the download.
 
 ## Features
 
@@ -64,8 +65,8 @@ The binaries are not code-signed yet, so Windows SmartScreen may warn on first r
 - The panel, settings, speech bubble and toys exist only while on screen.
 - No global keyboard/mouse hooks: it only knows *when* there was input
   (`GetLastInputInfo`), never *what*.
-- The main app has no network code. Only the chat plugin talks to the internet, and only
-  when you chat.
+- The mascot process never touches the network. When you chat, the app starts a second,
+  short-lived copy of itself (`dontStayAlone.exe --ia`) that makes the request and exits.
 
 ## Security
 
@@ -86,16 +87,15 @@ each is handled are in [`SECURITY.md`](SECURITY.md) (in Portuguese). Highlights:
 Requires Rust (`stable-x86_64-pc-windows-gnu` or MSVC toolchain).
 
 ```bash
-cargo build --release --workspace
+cargo build --release
 ```
 
-This produces `target/release/StayAlone.exe` — a single file with the four mascots, the icon
-and the manifest embedded — and the chat plugin `stayalone-chat.exe`, which must sit next
-to it. The icon is drawn from the Calcifer sprite at build time (`build.rs`), no external
-tools needed.
+This produces `target/release/dontStayAlone.exe` — a single file with the four mascots, the
+AI chat, the icon and the manifest embedded. The icon is drawn from the Calcifer sprite at
+build time (`build.rs`), no external tools needed.
 
 ```bash
-cargo test --workspace
+cargo test
 ```
 
 ## Usage
@@ -104,7 +104,7 @@ cargo test --workspace
 - **Right-click** it (or click the tray icon) to open the panel: treat, ball, chat, focus
   timer, switch mascot, size, silence, settings.
 - Command line (handy for Windows shortcuts; works while the app is running):
-  `StayAlone.exe --bolinha` (ball), `--petisco` (treat), `--conversar` (chat),
+  `dontStayAlone.exe --bolinha` (ball), `--petisco` (treat), `--conversar` (chat),
   `--resumo` (daily summary), `--esconder` (hide/show), `--configurar` (settings).
 
 Settings, mods and plugins live in `%APPDATA%\StayAlone\`. Mod and plugin formats are
@@ -116,7 +116,7 @@ creates in those folders.
 ```
 src/            the app (Win32 + pure logic modules with tests)
 src/settings/   settings window and pixel editor
-plugins/chat/   OpenAI-compatible chat plugin (WinHTTP, minimal JSON)
+src/ai/         AI chat (OpenAI-compatible API over WinHTTP, minimal JSON), run as --ia
 assets/         mascots, props, lines and the example plugin
 build.rs        icon, manifest and version resources
 docs/           screenshots

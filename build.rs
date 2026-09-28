@@ -243,7 +243,7 @@ fn version_info() -> Vec<u8> {
         string("ProductName", "!StayAlone"),
         string("FileVersion", &version),
         string("ProductVersion", &version),
-        string("OriginalFilename", "StayAlone.exe"),
+        string("OriginalFilename", "dontStayAlone.exe"),
         string("LegalCopyright", "© 2026 Atylla Azevedo · MIT License"),
         string("Comments", "Um mascote leve que faz companhia na área de trabalho."),
     ];
