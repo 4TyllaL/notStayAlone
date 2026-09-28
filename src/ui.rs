@@ -3,14 +3,16 @@
 //! dos controles nativos.
 
 use windows_sys::Win32::{
-    Foundation::{HWND, LPARAM, RECT},
-    Graphics::Gdi::{DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HFONT},
+    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Graphics::Gdi::{SetTextColor, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HFONT},
     UI::{
         Controls::{
-            DRAWITEMSTRUCT, LVM_GETHEADER, LVM_SETBKCOLOR, LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR, ODS_DISABLED, ODS_FOCUS,
-            ODS_NOFOCUSRECT, ODS_SELECTED,
+            CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, DRAWITEMSTRUCT, LVM_GETHEADER, LVM_SETBKCOLOR,
+            LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR, NMCUSTOMDRAW, NMHDR, NM_CUSTOMDRAW, ODS_DISABLED, ODS_FOCUS, ODS_NOFOCUSRECT,
+            ODS_SELECTED,
         },
-        WindowsAndMessaging::SendMessageW,
+        Shell::{DefSubclassProc, SetWindowSubclass},
+        WindowsAndMessaging::{SendMessageW, WM_NOTIFY},
     },
 };
 
@@ -107,8 +109,32 @@ pub unsafe fn theme_control(control: HWND, class: &str) {
         let header = SendMessageW(control, LVM_GETHEADER, 0, 0) as HWND;
         if !header.is_null() {
             set_window_theme(header, "DarkMode_ItemsView");
+            // O tema escuro pinta o fundo do cabeçalho, mas deixa o texto escuro:
+            // a lista passa a pintar o texto dos títulos das colunas com a cor do tema.
+            SetWindowSubclass(control, Some(list_proc), 1, 0);
         }
     }
+}
+
+/// A lista recebe as notificações do próprio cabeçalho: na hora de desenhar cada
+/// título de coluna, troca a cor do texto.
+unsafe extern "system" fn list_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+    if msg == WM_NOTIFY {
+        let header = SendMessageW(hwnd, LVM_GETHEADER, 0, 0) as HWND;
+        let hdr = &*(lp as *const NMHDR);
+        if hdr.hwndFrom == header && hdr.code == NM_CUSTOMDRAW {
+            let draw = &*(lp as *const NMCUSTOMDRAW);
+            match draw.dwDrawStage {
+                CDDS_PREPAINT => return CDRF_NOTIFYITEMDRAW as LRESULT,
+                CDDS_ITEMPREPAINT => {
+                    SetTextColor(draw.hdc, theme::colorref(theme::text()));
+                    return CDRF_DODEFAULT as LRESULT;
+                }
+                _ => {}
+            }
+        }
+    }
+    DefSubclassProc(hwnd, msg, wp, lp)
 }
 
 /// `SetWindowTheme` da uxtheme.dll, carregada só de System32.

@@ -293,6 +293,7 @@ try {
         Start-App "docs-dark" "mascot=jujubs`nlanguage=en`ntheme=dark`nupdates=off`n"
         $f = Open-Panel; Shoot-Layered $f "panel-dark" -ForDocs; Close-Panel $f
         Shoot-Settings "settings-dark-" ([ordered]@{ 2 = "chat" }) -ForDocs
+        Shoot-Settings "dark-" ([ordered]@{ 1 = "reminders"; 4 = "plugins"; 5 = "gallery" })
         Stop-App
         # Aniversário hoje: chapéu de festa.
         Start-App "docs-hat" ("mascot=calcifer`nlanguage=en`nupdates=off`nbirthday={0:dd}/{0:MM}`n" -f $today)
