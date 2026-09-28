@@ -16,16 +16,18 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Controls::{EM_LIMITTEXT, EM_SETCUEBANNER},
-        Input::KeyboardAndMouse::{SetFocus, VK_ESCAPE, VK_RETURN},
+        Controls::{EM_LIMITTEXT, EM_SETCUEBANNER, WM_MOUSELEAVE},
+        Input::KeyboardAndMouse::{SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT, VK_ESCAPE, VK_RETURN},
         WindowsAndMessaging::*,
     },
 };
 
 use crate::{
     ai::json::quote,
+    gfx::Canvas,
     mailbox,
-    win::{clean_line, text_of, ui_font, w},
+    theme::{self, argb, icon},
+    win::{self, clean_line, text_of, ui_font, w},
 };
 
 /// Texto digitado na caixinha (`String` no `mailbox`), enviado ao app.
@@ -38,8 +40,8 @@ pub const HISTORY: usize = 12;
 /// Respostas maiores que isso são cortadas: o balão é pequeno.
 const MAX_REPLY: usize = 350;
 
-const WIDTH: i32 = 300;
-const HEIGHT: i32 = 36;
+const WIDTH: i32 = 340;
+const HEIGHT: i32 = 48;
 
 thread_local! {
     /// (janela, campo de texto) da caixinha aberta.
@@ -101,6 +103,44 @@ pub fn shorten(text: &str) -> String {
 }
 
 // --- caixinha de texto --------------------------------------------------------
+//
+// Uma janela comum (campos de texto não aparecem em janelas em camadas), pintada
+// no visual do painel: cantos arredondados e sombra do Windows, ícone de conversa
+// à esquerda, campo sem borda e um botão redondo de enviar.
+
+/// Id do campo de texto (para as notificações de mudança).
+const IDC_EDIT: i32 = 1;
+
+struct Input {
+    owner: HWND,
+    edit: HWND,
+    dpi: u32,
+    font: HFONT,
+    icons: HFONT,
+    /// Fundo do campo de texto (a cor do cartão).
+    brush: HBRUSH,
+    /// Mouse em cima do botão de enviar.
+    hover: bool,
+}
+
+impl Input {
+    fn s(&self, v: i32) -> i32 {
+        v * self.dpi as i32 / 96
+    }
+
+    /// Botão de enviar, no canto direito.
+    unsafe fn send_rect(&self, window: HWND) -> RECT {
+        let mut client: RECT = zeroed();
+        GetClientRect(window, &mut client);
+        let size = self.s(32);
+        let (x, y) = (client.right - self.s(8) - size, (client.bottom - size) / 2);
+        RECT { left: x, top: y, right: x + size, bottom: y + size }
+    }
+}
+
+unsafe fn input_of<'a>(window: HWND) -> Option<&'a mut Input> {
+    (GetWindowLongPtrW(window, GWLP_USERDATA) as *mut Input).as_mut()
+}
 
 /// Retângulo da caixinha aberta (para o balão aparecer acima dela).
 pub fn input_rect() -> Option<RECT> {
@@ -126,10 +166,10 @@ pub unsafe fn open(owner: HWND, placeholder: &str, center_x: i32, bottom: i32, w
     let class = w("StayAloneChatInput");
     let wc = WNDCLASSEXW {
         cbSize: size_of::<WNDCLASSEXW>() as u32,
+        style: CS_DROPSHADOW,
         lpfnWndProc: Some(proc),
         hInstance: hinstance,
         hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-        hbrBackground: GetSysColorBrush(COLOR_WINDOW),
         lpszClassName: class.as_ptr(),
         ..zeroed()
     };
@@ -142,7 +182,7 @@ pub unsafe fn open(owner: HWND, placeholder: &str, center_x: i32, bottom: i32, w
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         class.as_ptr(),
         w("Conversar").as_ptr(),
-        WS_POPUP | WS_BORDER,
+        WS_POPUP | WS_CLIPCHILDREN,
         x,
         y,
         width,
@@ -155,30 +195,51 @@ pub unsafe fn open(owner: HWND, placeholder: &str, center_x: i32, bottom: i32, w
     if window.is_null() {
         return;
     }
-    SetWindowLongPtrW(window, GWLP_USERDATA, owner as isize);
+    win::round_corners(window, theme::BORDER);
+    // Campo sem borda entre o ícone (à esquerda) e o botão de enviar (à direita).
+    let font = ui_font(s(15), FW_NORMAL);
+    let edit_h = s(22);
     let edit = CreateWindowExW(
         0,
         w("EDIT").as_ptr(),
         null(),
         WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL as u32,
-        s(8),
-        s(8),
-        width - s(16) - 2,
-        s(20),
+        s(52),
+        (height - edit_h) / 2,
+        width - s(52) - s(50),
+        edit_h,
         window,
-        null_mut(),
+        IDC_EDIT as isize as HMENU,
         hinstance,
         null(),
     );
-    let font = ui_font(s(15), FW_NORMAL);
     SendMessageW(edit, WM_SETFONT, font as WPARAM, 1);
-    SetPropW(window, w("font").as_ptr(), font);
     SendMessageW(edit, EM_SETCUEBANNER, 1, w(placeholder).as_ptr() as LPARAM);
     SendMessageW(edit, EM_LIMITTEXT, 500, 0);
+    let input = Box::new(Input {
+        owner,
+        edit,
+        dpi,
+        font,
+        icons: theme::icon_font(s(16)),
+        brush: CreateSolidBrush(theme::colorref(theme::CARD)),
+        hover: false,
+    });
+    SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(input) as isize);
     INPUT.with(|i| i.set((window, edit)));
     ShowWindow(window, SW_SHOW);
     SetForegroundWindow(window);
     SetFocus(edit);
+}
+
+/// Manda o que foi digitado para o app e limpa o campo.
+unsafe fn submit(window: HWND) {
+    let Some(input) = input_of(window) else { return };
+    let text = text_of(input.edit);
+    if !text.is_empty() {
+        SetWindowTextW(input.edit, w("").as_ptr());
+        mailbox::post(input.owner, WM_CHAT_SEND, text);
+    }
 }
 
 /// Enter envia, Esc fecha. Chamado no laço de mensagens antes de despachar.
@@ -190,12 +251,7 @@ pub fn pre_translate(msg: &MSG) -> bool {
     unsafe {
         match msg.wParam as u16 {
             VK_RETURN => {
-                let text = text_of(edit);
-                if !text.is_empty() {
-                    SetWindowTextW(edit, w("").as_ptr());
-                    let owner = GetWindowLongPtrW(window, GWLP_USERDATA) as HWND;
-                    mailbox::post(owner, WM_CHAT_SEND, text);
-                }
+                submit(window);
                 true
             }
             VK_ESCAPE => {
@@ -207,20 +263,119 @@ pub fn pre_translate(msg: &MSG) -> bool {
     }
 }
 
+unsafe fn paint(window: HWND) {
+    let Some(input) = input_of(window) else { return };
+    let mut ps: PAINTSTRUCT = zeroed();
+    let dc = BeginPaint(window, &mut ps);
+    let mut client: RECT = zeroed();
+    GetClientRect(window, &mut client);
+    let mut c = Canvas::new(client.right.max(1), client.bottom.max(1));
+    c.fill(0, 0, c.width, c.height, argb(theme::CARD));
+    let center = DT_CENTER | DT_VCENTER | DT_SINGLELINE;
+
+    // Ícone de conversa num círculo suave.
+    let bubble = input.s(30);
+    let (bx, by) = (input.s(12), (client.bottom - bubble) / 2);
+    c.round_rect(bx, by, bubble, bubble, bubble / 2, argb(theme::ACCENT_SOFT));
+    let icon_rect = RECT { left: bx, top: by, right: bx + bubble, bottom: by + bubble };
+    c.text(input.icons, &icon::CHAT.to_string(), icon_rect, theme::ACCENT, center);
+
+    // Botão de enviar: laranja quando há texto, apagado quando o campo está vazio.
+    let send = input.send_rect(window);
+    let size = send.right - send.left;
+    let empty = GetWindowTextLengthW(input.edit) == 0;
+    let (fill, ink) = match (empty, input.hover) {
+        (true, _) => (theme::SOFT, theme::DISABLED),
+        (false, true) => (theme::ACCENT_DARK, theme::CARD),
+        (false, false) => (theme::ACCENT, theme::CARD),
+    };
+    c.round_rect(send.left, send.top, size, size, size / 2, argb(fill));
+    c.text(input.icons, &icon::SEND.to_string(), send, ink, center);
+
+    c.blit(dc, 0, 0);
+    EndPaint(window, &ps);
+}
+
+unsafe fn over_send(window: HWND, lp: LPARAM) -> bool {
+    let Some(input) = input_of(window) else { return false };
+    let (x, y) = ((lp & 0xFFFF) as i16 as i32, ((lp >> 16) & 0xFFFF) as i16 as i32);
+    let r = input.send_rect(window);
+    x >= r.left && x < r.right && y >= r.top && y < r.bottom
+}
+
+unsafe fn set_hover(window: HWND, hover: bool) {
+    let Some(input) = input_of(window) else { return };
+    if input.hover != hover {
+        input.hover = hover;
+        let r = input.send_rect(window);
+        InvalidateRect(window, &r, 0);
+    }
+}
+
 unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
+        WM_ERASEBKGND => 1,
+        WM_PAINT => {
+            paint(hwnd);
+            0
+        }
+        // O campo com o fundo do cartão.
+        WM_CTLCOLOREDIT => {
+            let Some(input) = input_of(hwnd) else { return DefWindowProcW(hwnd, msg, wp, lp) };
+            SetBkColor(wp as HDC, theme::colorref(theme::CARD));
+            SetTextColor(wp as HDC, theme::colorref(theme::TEXT));
+            input.brush as LRESULT
+        }
+        // Digitou ou apagou: o botão de enviar acende ou apaga.
+        WM_COMMAND if (wp & 0xFFFF) as i32 == IDC_EDIT && ((wp >> 16) & 0xFFFF) as u32 == EN_CHANGE => {
+            if let Some(input) = input_of(hwnd) {
+                let r = input.send_rect(hwnd);
+                InvalidateRect(hwnd, &r, 0);
+            }
+            0
+        }
+        WM_MOUSEMOVE => {
+            set_hover(hwnd, over_send(hwnd, lp));
+            let mut track = TRACKMOUSEEVENT { cbSize: size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+            TrackMouseEvent(&mut track);
+            0
+        }
+        WM_MOUSELEAVE => {
+            set_hover(hwnd, false);
+            0
+        }
+        WM_SETCURSOR if input_of(hwnd).is_some_and(|i| i.hover) => {
+            SetCursor(LoadCursorW(null_mut(), IDC_HAND));
+            1
+        }
+        WM_LBUTTONUP => {
+            if over_send(hwnd, lp) {
+                submit(hwnd);
+            }
+            if let Some(input) = input_of(hwnd) {
+                SetFocus(input.edit);
+            }
+            0
+        }
         // Clicou fora: some.
         WM_ACTIVATE if (wp & 0xFFFF) as u32 == WA_INACTIVE => {
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
             0
         }
         WM_DESTROY => {
-            let font = RemovePropW(hwnd, w("font").as_ptr());
-            if !font.is_null() {
-                DeleteObject(font);
-            }
             INPUT.with(|i| i.set((null_mut(), null_mut())));
             0
+        }
+        WM_NCDESTROY => {
+            let input = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Input;
+            if !input.is_null() {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                let input = Box::from_raw(input);
+                for object in [input.font, input.icons, input.brush] {
+                    DeleteObject(object);
+                }
+            }
+            DefWindowProcW(hwnd, msg, wp, lp)
         }
         _ => DefWindowProcW(hwnd, msg, wp, lp),
     }

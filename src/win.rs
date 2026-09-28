@@ -50,11 +50,10 @@ pub fn text_of(control: HWND) -> String {
     }
 }
 
-/// Pinta a barra de título com a cor da janela (Windows 11; antes disso não faz nada).
-/// A dwmapi.dll é carregada só de System32, como a winhttp.dll do plugin.
-pub unsafe fn caption_color(hwnd: HWND, rgb: u32) {
+/// Muda um atributo de janela do DWM (visual do Windows 11; antes disso não faz nada).
+/// A dwmapi.dll é carregada só de System32, como a winhttp.dll da conversa.
+unsafe fn dwm_set(hwnd: HWND, attribute: u32, value: u32) {
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
-    const DWMWA_CAPTION_COLOR: u32 = 35;
     type SetAttribute = unsafe extern "system" fn(HWND, u32, *const core::ffi::c_void, u32) -> i32;
     let lib = LoadLibraryExW(w("dwmapi.dll").as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32);
     if lib.is_null() {
@@ -62,9 +61,23 @@ pub unsafe fn caption_color(hwnd: HWND, rgb: u32) {
     }
     if let Some(proc) = GetProcAddress(lib, c"DwmSetWindowAttribute".as_ptr().cast()) {
         let set: SetAttribute = std::mem::transmute::<unsafe extern "system" fn() -> isize, SetAttribute>(proc);
-        let color = crate::theme::colorref(rgb);
-        set(hwnd, DWMWA_CAPTION_COLOR, (&color as *const u32).cast(), 4);
+        set(hwnd, attribute, (&value as *const u32).cast(), 4);
     }
+}
+
+/// Pinta a barra de título com a cor da janela.
+pub unsafe fn caption_color(hwnd: HWND, rgb: u32) {
+    const DWMWA_CAPTION_COLOR: u32 = 35;
+    dwm_set(hwnd, DWMWA_CAPTION_COLOR, crate::theme::colorref(rgb));
+}
+
+/// Cantos arredondados e borda fina de cor `border_rgb` (janelas sem moldura).
+pub unsafe fn round_corners(hwnd: HWND, border_rgb: u32) {
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWA_BORDER_COLOR: u32 = 34;
+    const DWMWCP_ROUND: u32 = 2;
+    dwm_set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
+    dwm_set(hwnd, DWMWA_BORDER_COLOR, crate::theme::colorref(border_rgb));
 }
 
 /// Tira caracteres de controle e limita o tamanho — para textos vindos de

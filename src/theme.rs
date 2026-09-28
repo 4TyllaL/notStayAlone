@@ -50,6 +50,7 @@ pub mod icon {
     pub const CALENDAR: char = '\u{E787}';
     pub const POWER: char = '\u{E7E8}';
     pub const CHEVRON: char = '\u{E76C}';
+    pub const SEND: char = '\u{E724}';
     pub const ADD: char = '\u{E710}';
     pub const MORE: char = '\u{E712}';
     pub const HEART_FULL: char = '\u{EB52}';
