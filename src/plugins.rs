@@ -321,6 +321,15 @@ mod tests {
         assert!(p.program.ends_with(files[1].0));
     }
 
+    /// O exemplo roda de verdade, como o app roda: PowerShell dentro do job, JSON no stdin.
+    #[test]
+    fn example_plugin_runs_confined() {
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join(r"assets\plugins\curiosidades");
+        let p = parse(EXAMPLE.0, &folder, EXAMPLE.1[0].1).unwrap();
+        let said = child::run(p.command(), &notice_input("Calcifer", false, 15), MAX_OUTPUT).unwrap();
+        assert!(!said.is_empty() && said.len() < MAX_NOTICE * 4, "{said}");
+    }
+
     #[test]
     fn changed_files_are_detected() {
         let dir = std::env::temp_dir().join("stayalone-plugin-test");

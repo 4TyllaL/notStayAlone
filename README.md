@@ -16,7 +16,7 @@ on the Win32 API, with no UI framework.
 
 | | Target | Measured |
 |---|---|---|
-| Executable | < 5 MB | ~805 KB — a single `.exe`, AI chat included |
+| Executable | < 5 MB | ~815 KB — a single `.exe`, AI chat included |
 | Private memory | < 20 MB | ~2–4 MB |
 | CPU | ~0% | ~0.03% of the machine |
 
@@ -116,7 +116,10 @@ each is handled are in [`SECURITY.md`](SECURITY.md) (in Portuguese). Highlights:
 - No pointers in window messages: data between windows goes through an in-process mailbox,
   so forged messages from other programs are ignored.
 - Every input is bounded (mod files, AI replies, JSON depth, plugin output and run time).
-- New plugins start **off**; enabling one asks for confirmation and pins its SHA-256.
+- New plugins start **off**; enabling one asks for confirmation (clearly labeled *full
+  access*, with the file's SHA-256) and pins that SHA-256. Every plugin and helper process
+  runs in a Windows Job Object: it can't start other programs, use the clipboard, touch
+  other windows or system settings, is capped at 512 MB and dies with the app.
 - Updates only come from this repository's releases, are checked against the SHA-256
   GitHub publishes **and** an Ed25519 signature (key kept offline, not on GitHub, so a
   compromised repository can't push an update), and never go back to an older version. Gallery files are checked
@@ -155,7 +158,10 @@ and only screenshots the app's own windows; `-Docs` refreshes the images in `doc
   timer, switch mascot, size, water, silence, settings.
 - **Ctrl+Alt+M** opens the chat (can be turned off in Settings → Chat).
 - **Settings → About** (at the bottom of the sidebar) shows the version, the release date and
-  links to the author's projects page and to this repository.
+  links to the author's projects page and to this repository. Its **Security and privacy**
+  card shows, in plain words, what protects you: the SHA-256 of the running `.exe` (compare it
+  with GitHub's), how updates are checked, where the API key lives, which services the app
+  talks to, whether it starts with Windows and how many plugins can run programs.
 - Command line (handy for Windows shortcuts; works while the app is running):
   `dontStayAlone.exe --bolinha` (ball), `--petisco` (treat), `--conversar` (chat),
   `--agua` (I drank water), `--resumo` (daily summary), `--esconder` (hide/show),

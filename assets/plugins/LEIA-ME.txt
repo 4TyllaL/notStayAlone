@@ -10,7 +10,11 @@ SEGURANÇA
     rodam no seu PC com as suas permissões.
   - Ao ligar, o app guarda a "impressão digital" (SHA-256) do programa. Se o arquivo
     mudar depois, o plugin é pausado até você ligar de novo.
-  - Cada execução tem no máximo 2 minutos e 16 KB de resposta.
+  - Cada execução tem no máximo 2 minutos, 16 KB de resposta e 512 MB de memória.
+  - O plugin roda isolado num "job" do Windows: não pode abrir outros programas
+    (Start-Process, cmd, etc. falham), nem usar a área de transferência, mexer em
+    janelas que não são dele ou em configurações do sistema. Arquivos e internet
+    continuam com as suas permissões: por isso ele aparece como "acesso completo".
 
 O plugin.ini
   name  = Nome que aparece na lista

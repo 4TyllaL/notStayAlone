@@ -8,7 +8,7 @@ escolha em Configurações).
 
 | Métrica | Meta | Medido |
 |---|---|---|
-| Executável | < 5 MB | ~805 KB — um único `.exe`, conversa com IA inclusa |
+| Executável | < 5 MB | ~815 KB — um único `.exe`, conversa com IA inclusa |
 | Memória privada | < 20 MB | ~2,3 MB |
 | CPU | ~0% | ~0,03% da máquina (0,05–0,4% de um núcleo: parado → andando) |
 
@@ -54,7 +54,10 @@ com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
   depois ajuste. "Salvar e usar" já coloca ele na tela (fica em `%APPDATA%\StayAlone\mascots\`).
 - **Plugins:** liga e desliga os plugins (veja abaixo), com botão de teste.
 - **Sobre** (no rodapé da barra lateral): o que é o app, a versão, a data de lançamento e
-  links para a minha página de projetos e para este repositório.
+  links para a minha página de projetos e para este repositório. O cartão **Segurança e
+  privacidade** mostra, sem jargão, o que protege você: SHA-256 do `.exe` em uso (compare
+  com o do GitHub), como as atualizações são conferidas, onde a chave da API fica, com quais
+  serviços o app fala, se ele inicia com o Windows e quantos plugins podem rodar programas.
 - **Galeria:** mascotes da comunidade, instalados com um clique. Só mascotes — desenho e
   falas em texto, nada que rode no seu PC. Os arquivos vêm da pasta [`gallery/`](gallery)
   deste repositório e são conferidos (SHA-256) antes de gravar. Para publicar o seu, mande
@@ -113,8 +116,12 @@ O app manda um JSON no stdin e lê a resposta no stdout — o protocolo completo
 
 **Segurança:** plugin novo chega desligado; para ligar, você confirma e o app guarda a
 impressão digital (SHA-256) do programa. Se o arquivo mudar, o plugin é pausado até você
-ligar de novo. O programa precisa estar dentro da pasta do plugin, cada execução tem no
-máximo 2 minutos e 16 KB de resposta, e o aviso falado tem até 200 caracteres.
+ligar de novo. A pergunta diz com todas as letras que é um plugin de **acesso completo**
+(roda com as permissões da sua conta) e mostra o SHA-256. O programa precisa estar dentro
+da pasta do plugin, cada execução tem no máximo 2 minutos, 16 KB de resposta e 512 MB de
+memória, e o aviso falado tem até 200 caracteres. Cada execução roda num *Job Object* do
+Windows: sem abrir outros programas, sem área de transferência, sem mexer nas suas janelas
+ou nas configurações do sistema, e encerrada se o app fechar.
 
 ## Os mascotes
 

@@ -124,6 +124,12 @@ const IDC_ABOUT_PROJECTS: i32 = 180;
 const IDC_ABOUT_GITHUB: i32 = 181;
 const IDC_ABOUT_UPDATE: i32 = 182;
 const IDC_ABOUT_STATUS: i32 = 183;
+/// Linhas do cartão "Segurança e privacidade" (na ordem de `SECURITY_ROWS`).
+const IDC_SEC_FIRST: i32 = 184;
+/// Rótulo que corta o fim com "…" (winuser.h; o windows-sys não exporta).
+const SS_ENDELLIPSIS: u32 = 0x4000;
+const SECURITY_ROWS: [&str; 7] =
+    ["Este programa", "SHA-256 do .exe", "Atualizações", "Chave da API", "Conexões", "Iniciar com o Windows", "Plugins"];
 const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
@@ -237,6 +243,8 @@ struct State {
     gallery_loaded: bool,
     /// Estado dos interruptores (id do controle, ligado?).
     toggles: Vec<(i32, bool)>,
+    /// SHA-256 deste .exe (calculado na primeira vez que a página Sobre abre).
+    exe_sha: Option<String>,
 }
 
 /// Para Tab/Enter/Esc funcionarem como numa caixa de diálogo.
@@ -338,6 +346,7 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
         gallery: Vec::new(),
         gallery_loaded: false,
         toggles: TOGGLES.iter().map(|&id| (id, false)).collect(),
+        exe_sha: None,
     });
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
     OPEN.with(|o| o.set(hwnd));
@@ -625,15 +634,15 @@ unsafe fn build(hwnd: HWND) {
     let plugin_list = add(Some(4), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 188, CONTENT - 2 * x0, 190), IDC_PLUGINS);
     SendMessageW(plugin_list, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as WPARAM, ex as LPARAM);
     add_columns(plugin_list, &[("Plugin", CONTENT - 2 * x0 - 236), (tr("Tipo"), 86), (tr("Situação"), 146)], dpi);
-    add(Some(4), "STATIC", "", 0, 0, (x0, 388, CONTENT - 2 * x0, 58), IDC_PLUGIN_INFO);
-    add(Some(4), "BUTTON", tr("Testar"), button, 0, (x0, 454, 100, 30), IDC_PLUGIN_TEST);
-    add(Some(4), "BUTTON", tr("Abrir pasta de plugins"), button, 0, (x0 + 108, 454, 180, 30), IDC_PLUGIN_FOLDER);
-    add(Some(4), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 296, 454, 130, 30), IDC_PLUGIN_RELOAD);
-    add(Some(4), "STATIC", "", 0, 0, (x0, 494, CONTENT - 2 * x0, 44), IDC_PLUGIN_RESULT);
+    add(Some(4), "STATIC", "", 0, 0, (x0, 388, CONTENT - 2 * x0, 98), IDC_PLUGIN_INFO);
+    add(Some(4), "BUTTON", tr("Testar"), button, 0, (x0, 494, 100, 30), IDC_PLUGIN_TEST);
+    add(Some(4), "BUTTON", tr("Abrir pasta de plugins"), button, 0, (x0 + 108, 494, 180, 30), IDC_PLUGIN_FOLDER);
+    add(Some(4), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 296, 494, 130, 30), IDC_PLUGIN_RELOAD);
+    add(Some(4), "STATIC", "", 0, 0, (x0, 534, CONTENT - 2 * x0, 44), IDC_PLUGIN_RESULT);
     hint!(
         4,
         tr("Crie o seu com um .exe ou um script PowerShell: veja o LEIA-ME.txt e o exemplo \"Curiosidades\" na pasta de plugins."),
-        548,
+        588,
         40
     );
 
@@ -676,6 +685,19 @@ unsafe fn build(hwnd: HWND) {
     add(Some(6), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 344, 170, 32), IDC_ABOUT_GITHUB);
     add(Some(6), "BUTTON", tr("Procurar atualização"), button, 0, (x0 + 336, 344, 172, 32), IDC_ABOUT_UPDATE);
     add(Some(6), "STATIC", "", 0, 0, (x0, 384, CONTENT - 2 * x0, 20), IDC_ABOUT_STATUS);
+    // O que protege você, à vista (preenchido por `fill_security` quando a página abre).
+    section!(6, tr("Segurança e privacidade"), 436);
+    for (i, name) in SECURITY_ROWS.iter().enumerate() {
+        let y = 460 + i as i32 * 24;
+        label!(6, tr(name), x0, y, 170);
+        add(Some(6), "STATIC", "", SS_ENDELLIPSIS, 0, (cx, y + 3, CONTENT - cx - x0, 20), IDC_SEC_FIRST + i as i32);
+    }
+    hint!(
+        6,
+        tr("Sem telemetria. O mascote em si nunca usa a rede: só processos separados, quando você conversa, procura versão ou abre a Galeria."),
+        628,
+        40
+    );
 
     // --- Rodapé (fora dos cartões)
     add(None, "BUTTON", tr("Salvar"), button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
@@ -727,8 +749,76 @@ unsafe fn show_page(hwnd: HWND, page: usize) {
         ShowWindow(control, if p == st.page { SW_SHOW } else { SW_HIDE });
     }
     InvalidateRect(hwnd, null(), 0);
+    if st.page == ABOUT {
+        fill_security(hwnd);
+    }
     if st.page == Page::Gallery as usize && !st.gallery_loaded && st.busy.is_none() {
         load_gallery(hwnd);
+    }
+}
+
+// --- segurança e privacidade ------------------------------------------------------
+
+/// O domínio de um endereço, curto: "https://api.openai.com/v1" → "openai.com"
+/// (endereço IP ou nome sem ponto, como localhost, fica inteiro, com a porta).
+fn site_of(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let name = host.split(':').next().unwrap_or("");
+    if name.bytes().all(|b| b.is_ascii_digit() || b == b'.') || !name.contains('.') {
+        return host;
+    }
+    let dots: Vec<usize> = name.match_indices('.').map(|(i, _)| i).collect();
+    if dots.len() < 2 { name } else { &name[dots[dots.len() - 2] + 1..] }
+}
+
+/// Preenche o cartão com o estado atual (inclusive o que foi mudado e ainda não salvo).
+unsafe fn fill_security(hwnd: HWND) {
+    let Some(st) = state(hwnd) else { return };
+    let sha = st.exe_sha.get_or_insert_with(|| {
+        std::env::current_exe().and_then(std::fs::read).map(|b| crate::sha256::hex(&b)).unwrap_or_default()
+    });
+    let sha = if sha.len() == 64 { format!("{}…{}", &sha[..20], &sha[44..]) } else { tr("não consegui ler").into() };
+    let program = fill(tr("v{} · sem assinatura Authenticode (ainda)"), &[&crate::update::current()]);
+
+    let updates = if is_checked(hwnd, IDC_UPDATES) {
+        tr("1× por dia; só instala assinadas e com o seu OK")
+    } else {
+        tr("procura desligada; ao atualizar, só assinadas")
+    };
+
+    let key_name = text_of(item(hwnd, IDC_KEYENV));
+    let key = match secret::find(&key_name) {
+        _ if key_name.trim().is_empty() => tr("o serviço escolhido não usa chave"),
+        Some(KeySource::Vault) => tr("no Gerenciador de Credenciais do Windows"),
+        Some(KeySource::Environment) => tr("numa variável de ambiente (prefira salvar aqui)"),
+        None => tr("nenhuma salva"),
+    };
+
+    let enabled = |id: &str| st.draft.plugins.iter().any(|e| e.id == id);
+    let mut net = Vec::new();
+    if is_checked(hwnd, IDC_UPDATES) {
+        net.push("GitHub".to_string());
+    }
+    if enabled(plugins::NATIVE_ID) {
+        let base = text_of(item(hwnd, IDC_BASE));
+        net.push(fill(tr("IA ({})"), &[&site_of(&base)]));
+    }
+    net.push(tr("Galeria").to_string());
+
+    let autostart = if is_checked(hwnd, IDC_AUTOSTART) { tr("sim") } else { tr("não") };
+
+    let external: Vec<&Plugin> = st.plugins.iter().filter(|p| !p.is_native()).collect();
+    let on = external.iter().filter(|p| enabled(&p.id)).count();
+    let plugins = if on == 0 {
+        fill(tr("{} instalado(s), nenhum ligado"), &[&external.len()])
+    } else {
+        fill(tr("{} ligado(s): rodam programas com as suas permissões"), &[&on])
+    };
+
+    let values = [program, sha, updates.into(), key.into(), net.join(" · "), autostart.into(), plugins];
+    for (i, value) in values.iter().enumerate() {
+        set_text(hwnd, IDC_SEC_FIRST + i as i32, value);
     }
 }
 
@@ -1105,7 +1195,12 @@ O arquivo mudou depois que você ligou: marque de novo só se confiar na nova ve
 O arquivo do plugin não está mais na pasta."),
             _ => "",
         };
-        format!("{}\n{} {file}{when}{warning}", p.about, tr("Arquivo:"))
+        let access = if p.is_native() {
+            tr("Parte do próprio !StayAlone.")
+        } else {
+            tr("Acesso completo: roda com as permissões da sua conta.")
+        };
+        format!("{}\n{} {file}{when}\n{access}{warning}", p.about, tr("Arquivo:"))
     });
     set_text(hwnd, IDC_PLUGIN_INFO, &text);
     EnableWindow(item(hwnd, IDC_PLUGIN_TEST), plugin.is_some() as BOOL);
@@ -1152,19 +1247,37 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
     if plugin.is_native() {
         return Some(Enabled { id: plugin.id.clone(), fingerprint: String::new() });
     }
-    let file = plugin.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
-    let question = fill(
-        tr("Ligar o plugin \"{}\"?\n\n{}\n\nEle é um programa ({}) que vai rodar no seu PC com as suas permissões. \
-            Ligue só plugins de quem você confia."),
-        &[&plugin.name, &plugin.about, &file],
-    );
-    if MessageBoxW(hwnd, w(&question).as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES {
-        return None;
-    }
+    // A impressão digital sai antes da pergunta: a que você vê é a que fica aprovada.
     let Some(fingerprint) = plugin.fingerprint() else {
         info(hwnd, tr("Não consegui ler o arquivo do plugin."));
         return None;
     };
+    let file = plugin.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
+    let limits = [
+        tr("O que o !StayAlone limita:"),
+        tr("• roda sem janela, por até 2 minutos; só o texto que ele escreve chega ao mascote"),
+        tr("• não pode abrir outros programas, usar a área de transferência nem mexer nas suas janelas"),
+        tr("• se o arquivo mudar, ele para até você aprovar de novo"),
+    ];
+    let question = [
+        fill(tr("Ligar o plugin \"{}\"?"), &[&plugin.name]),
+        plugin.about.clone(),
+        format!("⚠ {}", tr("Acesso completo (plugin nativo, não isolado)")),
+        fill(
+            tr("É um programa ({}) que roda com as permissões da sua conta: pode ler e mudar seus arquivos e usar a internet."),
+            &[&file],
+        ),
+        limits.join("\n"),
+        format!("SHA-256: {fingerprint}"),
+        tr("Ligue só plugins de quem você confia.").to_string(),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n");
+    if MessageBoxW(hwnd, w(&question).as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES {
+        return None;
+    }
     Some(Enabled { id: plugin.id.clone(), fingerprint })
 }
 
@@ -1713,5 +1826,20 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             DefWindowProcW(hwnd, msg, wp, lp)
         }
         _ => DefWindowProcW(hwnd, msg, wp, lp),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sites_are_short() {
+        assert_eq!(site_of("https://generativelanguage.googleapis.com/v1beta/openai/"), "googleapis.com");
+        assert_eq!(site_of("https://api.openai.com/v1"), "openai.com");
+        assert_eq!(site_of("http://localhost:11434/v1"), "localhost:11434");
+        assert_eq!(site_of("http://127.0.0.1:8080/v1"), "127.0.0.1:8080");
+        assert_eq!(site_of("https://example.com"), "example.com");
+        assert_eq!(site_of(""), "");
     }
 }
