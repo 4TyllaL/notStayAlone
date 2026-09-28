@@ -50,10 +50,12 @@ com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
   Mascotes podem ser 16×16 ou 32×32 — ou descreva o mascote e peça para a **IA desenhar**,
   depois ajuste. "Salvar e usar" já coloca ele na tela (fica em `%APPDATA%\StayAlone\mascots\`).
 - **Plugins:** liga e desliga os plugins (veja abaixo), com botão de teste.
-- **Galeria:** mascotes e plugins da comunidade, instalados com um clique. Os arquivos vêm
-  da pasta [`gallery/`](gallery) deste repositório e são conferidos (SHA-256) antes de
-  gravar; plugins chegam desligados. Para publicar o seu, mande um pull request com a pasta
-  em `gallery/mascots/` ou `gallery/plugins/` e rode `python tools/gallery.py`.
+- **Galeria:** mascotes da comunidade, instalados com um clique. Só mascotes — desenho e
+  falas em texto, nada que rode no seu PC. Os arquivos vêm da pasta [`gallery/`](gallery)
+  deste repositório e são conferidos (SHA-256) antes de gravar. Para publicar o seu, mande
+  um pull request com a pasta em `gallery/mascots/<id>/` (`mascot.txt` e, se quiser,
+  `phrases.txt` e `phrases_en.txt`) e rode `python tools/gallery.py`; o `cargo test` confere
+  se o mascote abre e se o índice está em dia. Plugins não entram na galeria.
 
 Mascotes podem ser "ele" ou "ela" (`article o|a` no `mascot.txt`): as falas se ajustam.
 

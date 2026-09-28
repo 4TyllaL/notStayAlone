@@ -602,21 +602,20 @@ unsafe fn build(hwnd: HWND) {
     );
 
     // --- Galeria
-    section!(5, tr("Galeria da comunidade"), 116);
+    section!(5, tr("Mascotes da comunidade"), 116);
     hint!(
         5,
-        tr("Mascotes e plugins da comunidade. Os arquivos vêm do repositório do !StayAlone no GitHub e são conferidos (SHA-256) antes de instalar."),
+        tr("Feitos pela comunidade: só desenho e falas, nada que rode no seu PC. Conferidos (SHA-256) antes de instalar."),
         140,
         40
     );
     let gallery_list = add(Some(5), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 188, CONTENT - 2 * x0, 214), IDC_GALLERY);
     SendMessageW(gallery_list, LVM_SETEXTENDEDLISTVIEWSTYLE, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as WPARAM, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as LPARAM);
-    add_columns(gallery_list, &[(tr("Nome"), CONTENT - 2 * x0 - 236), (tr("Tipo"), 86), (tr("Autor"), 146)], dpi);
+    add_columns(gallery_list, &[(tr("Nome"), CONTENT - 2 * x0 - 150), (tr("Autor"), 146)], dpi);
     add(Some(5), "STATIC", "", 0, 0, (x0, 412, CONTENT - 2 * x0, 40), IDC_GALLERY_INFO);
     add(Some(5), "BUTTON", tr("Instalar"), button, 0, (x0, 460, 110, 30), IDC_GALLERY_INSTALL);
     add(Some(5), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 118, 460, 140, 30), IDC_GALLERY_RELOAD);
     add(Some(5), "STATIC", "", 0, 0, (x0, 500, CONTENT - 2 * x0, 40), IDC_GALLERY_STATUS);
-    hint!(5, tr("Plugins instalados chegam desligados: ligue na página Plugins."), 548, 20);
 
     // --- Rodapé (fora dos cartões)
     add(None, "BUTTON", tr("Salvar"), button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
@@ -690,7 +689,7 @@ unsafe fn fill_gallery(hwnd: HWND) {
     let list = item(hwnd, IDC_GALLERY);
     SendMessageW(list, LVM_DELETEALLITEMS, 0, 0);
     for (i, e) in st.gallery.iter().enumerate() {
-        insert_row(list, i, &[&e.name, e.kind.label(), &e.author]);
+        insert_row(list, i, &[&e.name, &e.author]);
     }
     show_gallery_item(hwnd);
 }
@@ -1278,22 +1277,15 @@ unsafe fn on_reply(hwnd: HWND, reply: Reply) {
             st.gallery_loaded = true;
             let count = st.gallery.len();
             fill_gallery(hwnd);
-            set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("{} itens na galeria."), &[&count]));
+            set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("{} mascotes na galeria."), &[&count]));
         }
         (Some(Busy::GalleryList), Err(e)) => {
             set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("Não consegui abrir a galeria: {}"), &[&chat::shorten(&e)]));
         }
-        (Some(Busy::GalleryInstall), Ok(text)) => {
-            let status = if text.starts_with("plugin") {
-                st.plugins = plugins::list();
-                fill_plugins(hwnd, None);
-                tr("Instalado! O plugin está na página Plugins, desligado: ligue quando quiser.")
-            } else {
-                st.packs = pack::list();
-                fill_mascot_combos(hwnd);
-                tr("Instalado! Escolha o mascote na página Geral (ou no painel).")
-            };
-            set_text(hwnd, IDC_GALLERY_STATUS, status);
+        (Some(Busy::GalleryInstall), Ok(_)) => {
+            st.packs = pack::list();
+            fill_mascot_combos(hwnd);
+            set_text(hwnd, IDC_GALLERY_STATUS, tr("Instalado! Escolha o mascote na página Geral (ou no painel)."));
             show_gallery_item(hwnd);
         }
         (Some(Busy::GalleryInstall), Err(e)) => {

@@ -34,23 +34,6 @@
           "sha256": "f30780ef1a1bcd7ee4b1daff64abc64d9d76f42c614afdfff865da07be547bb4"
         }
       ]
-    },
-    {
-      "kind": "plugin",
-      "id": "frase-do-dia",
-      "name": "Frase do dia",
-      "author": "4TyllaL",
-      "about": "De tempos em tempos o mascote diz uma frase de ânimo.",
-      "files": [
-        {
-          "path": "plugins/frase-do-dia/frase.ps1",
-          "sha256": "41bf8dfd5017a636915bf9945b0b670288b09b69bd33e46795f590349c7316cf"
-        },
-        {
-          "path": "plugins/frase-do-dia/plugin.ini",
-          "sha256": "4a1281da85ff846a99c57d75d162eb633bfcef7852e0624f397d18b0244106e2"
-        }
-      ]
     }
   ]
 }

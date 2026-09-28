@@ -57,8 +57,9 @@ replaces the `.exe` (you can turn this off in Settings).
 - **Memory:** it can remember what you tell it in chat (an exam on Friday, your cat's name)
   and bring it up later. Kept only in a text file on your PC that you can view, edit or
   wipe; passwords, documents and numbers are never stored.
-- **Community gallery:** install mascots and plugins shared in this repository, right from
-  Settings. Every file is checked against its SHA-256 before it's written.
+- **Community mascots:** install mascots shared in this repository, right from Settings.
+  Only mascots — drawings and lines in plain text, nothing that runs on your PC — and every
+  file is checked against its SHA-256 before it's written.
 - **Dark mode:** follows Windows, or choose light/dark in Settings.
 - **Plugins:** your own `.exe` or PowerShell scripts that make the mascot say things on a
   schedule, or that answer the chat. Toggled in the settings, verified by SHA-256.
@@ -144,7 +145,7 @@ src/            the app (Win32 + pure logic modules with tests)
 src/settings/   settings window and pixel editor
 src/ai/         AI chat (OpenAI-compatible API over WinHTTP, minimal JSON), run as --ia
 assets/         mascots, props, lines (Portuguese and *_en.txt) and the example plugin
-gallery/        community mascots and plugins (index.json made by tools/gallery.py)
+gallery/        community mascots (index.json made by tools/gallery.py)
 build.rs        icon, manifest and version resources
 docs/           screenshots
 ```

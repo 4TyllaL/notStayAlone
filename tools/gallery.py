@@ -3,8 +3,9 @@
 Rode antes de publicar mudanças na galeria:
     python tools/gallery.py
 
-Cada item é uma pasta em gallery/mascots/<id>/ (com mascot.txt) ou
-gallery/plugins/<id>/ (com plugin.ini). O autor vem de um author.txt opcional.
+A galeria é só de mascotes: cada item é uma pasta em gallery/mascots/<id>/ com
+mascot.txt e, se quiser, phrases.txt e phrases_en.txt — nenhum outro arquivo é
+aceito (nada executável). O autor vem de um author.txt opcional.
 """
 import hashlib
 import json
@@ -14,7 +15,8 @@ import re
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "gallery")
 ID = re.compile(r"^[a-z0-9_-]{1,40}$")
 FILE = re.compile(r"^[A-Za-z0-9._-]{1,60}$")
-KINDS = (("mascote", "mascots", "mascot.txt"), ("plugin", "plugins", "plugin.ini"))
+KINDS = (("mascote", "mascots", "mascot.txt"),)
+ALLOWED = {"mascot.txt", "phrases.txt", "phrases_en.txt"}
 
 
 def meta(path, keys):
@@ -44,6 +46,8 @@ for kind, folder, required in KINDS:
             raise SystemExit(f"{folder}/{item} sem {required}")
         files = []
         for name in names:
+            if name not in ALLOWED:
+                raise SystemExit(f"arquivo não permitido na galeria: {folder}/{item}/{name}")
             if not FILE.match(name):
                 raise SystemExit(f"nome de arquivo inválido: {folder}/{item}/{name}")
             with open(os.path.join(path, name), "rb") as f:

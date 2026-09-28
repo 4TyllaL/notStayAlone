@@ -12,7 +12,7 @@ funcionais (SFRs). É uma análise inspirada no método, **não uma certificaç�
 | `dontStayAlone.exe` | mascote, lembretes, configurações, criador de mascotes | não: o processo do mascote nunca usa a rede |
 | `dontStayAlone.exe --ia` | conversa com IA (API padrão OpenAI), num processo separado e de vida curta | sim, só quando você conversa |
 | `--procurar-versao` / `--baixar-versao` | procura e baixa a versão nova (releases do GitHub) | sim, uma vez por dia (se ligado) |
-| `--galeria` / `--instalar-galeria` | lista e instala itens da galeria da comunidade | sim, só quando você abre a Galeria |
+| `--galeria` / `--instalar-galeria` | lista e instala mascotes da galeria da comunidade | sim, só quando você abre a Galeria |
 | Plugins de terceiros | programas que você liga na aba Plugins | o que o plugin fizer (fora do TOE) |
 
 Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
@@ -41,7 +41,7 @@ Credenciais do Windows.
 | T.PRIVACIDADE | O app registra o que você digita ou envia dados sem você pedir. |
 | T.PLUGIN | Um plugin é ligado sem você saber, ou o arquivo dele é trocado depois de aprovado. |
 | T.ATUALIZACAO | Um `.exe` falso ou antigo chega pela atualização automática (servidor ou rede comprometidos). |
-| T.GALERIA | Um item da galeria vem adulterado ou tenta gravar fora da pasta dele. |
+| T.GALERIA | Um item da galeria vem adulterado, tenta gravar fora da pasta dele ou traz um programa. |
 | T.MEMORIA | A memória da conversa guarda dados sensíveis. |
 
 ## Requisitos funcionais e como são atendidos
@@ -56,7 +56,7 @@ Credenciais do Windows.
 | **FPT (proteção do TSF)** | T.DLL | `winhttp.dll` carregada só de System32 (`LOAD_LIBRARY_SEARCH_SYSTEM32`); as demais DLLs importadas são "KnownDLLs". Binários com ASLR (alta entropia) e DEP; manifesto `asInvoker`. Plugin personalizado só `.exe` com caminho absoluto (nada de `.bat`/PATH). |
 | **FDP_ACF.1 / FPT_TST.1** — controle de acesso e integridade dos plugins | T.PLUGIN | Plugin novo chega desligado; ligar exige sua confirmação (padrão "Não") e grava o SHA-256 do programa. Antes de **cada** execução o hash é conferido; se mudou, não roda e o mascote avisa. No `config.ini`, plugin de terceiros sem hash válido é ignorado. O programa precisa ser `.exe`/`.ps1` **dentro** da pasta do plugin (sem caminhos nem `..`); o PowerShell usado é o de System32. |
 | **FPT_TUD_EXT / FCS_COP** — atualização confiável | T.ATUALIZACAO | Só de `https://github.com/4TyllaL/notStayAlone/releases/download/` (endereço conferido duas vezes, no app e no processo que baixa); o SHA-256 vem do campo `digest` da API do GitHub e o arquivo baixado precisa bater, começar com `MZ` e ter até 16 MB; nunca volta para versão mais antiga nem aceita pré-release. O `.exe` antigo é renomeado (`.old.exe`) antes da troca e apagado na próxima abertura. |
-| **FDP_ITC.2** — importação da galeria | T.GALERIA | Só de `raw.githubusercontent.com/4TyllaL/notStayAlone/main/gallery/`; cada arquivo tem SHA-256 no `index.json` e todos são conferidos **antes** de gravar qualquer um; ids `[a-z0-9_-]` e nomes de arquivo sem pastas nem `..`; plugins instalados chegam desligados (valem as regras de T.PLUGIN). |
+| **FDP_ITC.2** — importação da galeria | T.GALERIA | Só de `raw.githubusercontent.com/4TyllaL/notStayAlone/main/gallery/`; cada arquivo tem SHA-256 no `index.json` e todos são conferidos **antes** de gravar qualquer um; ids `[a-z0-9_-]`. **Só mascotes:** os únicos arquivos aceitos são `mascot.txt`, `phrases.txt` e `phrases_en.txt` (texto lido pelos parsers com limites de T.MOD) — nada executável; um item com qualquer outro arquivo é descartado inteiro. Plugins ficam fora da galeria de propósito. No repositório, `tools/gallery.py` recusa outros arquivos e o `cargo test` confere índice, hashes e se cada mascote abre. |
 | **FPR_ANO / FDP_RIP** — minimização na memória | T.MEMORIA | Desligável; só fatos curtos marcados pela IA, no máximo 30, num arquivo de texto local que você vê, edita e apaga pelas Configurações. Fatos com senha, documento, cartão, conta, e-mail ou números longos são descartados antes de gravar. |
 | **FRU_RSA.1** — cotas de recursos | T.RECURSOS | Timers ligados só quando necessários; janelas, fontes e bitmaps criados sob demanda e liberados (sem vazamento GDI/USER medido); até 50 lembretes seus; histórico da conversa com 12 mensagens. |
 | **FPR_UNO / FDP_IFC.1** — privacidade e fluxo | T.PRIVACIDADE | Sem hooks de teclado/mouse; só `GetLastInputInfo` (quando, nunca o quê). "Quieto em reuniões" lê só o nome do `.exe` da janela da frente, nunca o conteúdo. Fora a conversa (se você configurar), a procura de versão (desligável) e a Galeria (quando aberta), nada sai do PC; sem telemetria nem logs. |
