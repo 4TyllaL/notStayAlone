@@ -1,0 +1,134 @@
+# !StayAlone — falas do mascote
+#
+# Uma fala por linha, agrupadas por [tópico]. O mascote sorteia uma
+# (sem repetir a anterior). Linhas começando com '#' são comentários.
+#
+# Em qualquer fala dá para usar {nome} (o nome do mascote). No [resumo]:
+#   {juntos}  tempo que vocês passaram juntos hoje (ex.: 3h12min)
+#   {pausas}  ex.: "2 pausas" / "nenhuma pausa"
+#   {agua}    ex.: "3 vezes" / "nenhuma vez"
+#
+# Cada mascote pode ter falas próprias (o phrases.txt da pasta dele),
+# que substituem estas só nos tópicos que definir.
+#
+# Dica: coloque uma cópia editada como "phrases.txt" ao lado do
+# StayAlone.exe para mudar as falas padrão sem recompilar.
+
+[bom_dia]
+Bom dia! Vamos com calma hoje.
+Bom dia! Já tomou café?
+Bom diaaa! Que bom te ver.
+
+[boa_tarde]
+Boa tarde! Tô aqui com você.
+Oi! Boa tarde!
+Boa tarde! Bora fazer uma tarde tranquila.
+
+[boa_noite]
+Boa noite! Vou ficar por aqui.
+Oi! Boa noite!
+Boa noite! Não vai dormir tarde, hein?
+
+[madrugada]
+Acordado até essa hora? Tô junto.
+Madrugada, é? Então somos dois.
+
+[voltou]
+Voltou! Que bom!
+Ah, você voltou!
+Oba, companhia de novo!
+Senti um pouquinho de falta.
+
+[saudade]
+Você sumiu! Senti saudade.
+Finalmente! Achei que tinha me esquecido.
+Que saudade! Tudo bem por aí?
+
+[agua]
+Hora de beber água! Clica aqui quando beber.
+Um golinho de água? Clica aqui depois.
+Hidratação! Bebe uma água e clica aqui.
+
+[alongar]
+Que tal esticar as costas um pouco?
+Levanta um minutinho e alonga!
+Hora de mexer o corpo. Só um pouquinho!
+
+[olhos]
+Olha pra algo longe por 20 segundos.
+Descansa os olhos um instante.
+Pisca bastante e olha pela janela um pouco.
+
+[meia_noite]
+Já passou da meia-noite... que tal descansar?
+Tá tarde! Amanhã você continua.
+O sono também é produtivo, sabia?
+
+[carinho]
+Hehe!
+Oi!
+Isso é bom!
+Mais!
+Ei, faz cócegas!
+
+[carinho_muito]
+Gosto muito de você! ♥
+Você é minha pessoa favorita.
+♥ ♥ ♥
+Melhor companhia!
+
+[obrigado]
+Isso aí!
+Mandou bem!
+Boa! Tô orgulhoso.
+Seu corpo agradece!
+
+[pomodoro_inicio]
+Pomodoro começou! 25 minutos de foco.
+Foco total! Te aviso em 25 minutos.
+
+[pomodoro_pausa]
+Pausa! 5 minutinhos pra respirar.
+Acabou o foco! Descansa 5 minutos.
+
+[pomodoro_volta]
+Bora voltar? Mais 25 minutos!
+Pausa acabou! Vamos de novo.
+
+[resumo]
+Hoje ficamos juntos {juntos}! Você fez {pausas} e bebeu água {agua}.
+Resumo do dia: {juntos} juntos, {pausas}, água {agua}.
+
+[silencio]
+Tá bom, fico quietinho por uma hora.
+Shhh... Silêncio por uma hora.
+
+[ola]
+Oi! Eu sou o {nome}!
+O {nome} chegou!
+
+[petisco]
+Hmm, que delícia!
+Obrigado pelo petisco!
+*nhac nhac*
+
+[cheio]
+Tô cheio! Mais tarde, tá?
+Obrigado, mas ainda tô de barriga cheia.
+
+[bolinha_fim]
+Cansei! Valeu pela brincadeira!
+Ufa! Essa foi boa.
+
+[bateria_baixa]
+A bateria tá acabando... me dá um carregador?
+Tô ficando sem energia! Bateria baixa.
+
+[carregando]
+Ahh, energia! Obrigado!
+Carregando... que alívio!
+
+[digitando]
+Tá voando no teclado, hein!
+Que foco! Tô torcendo por você.
+Nossa, quanta coisa! Vai lá!

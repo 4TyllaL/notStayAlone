@@ -1,0 +1,25 @@
+# Falas próprias do Calcifer (só os tópicos que mudam; o resto vem das falas padrão).
+
+[ola]
+Miau! Eu sou o Calcifer.
+Prrr... o Calcifer chegou!
+
+[carinho]
+Miau!
+Prrr...
+Miau miau!
+*ronrona*
+
+[carinho_muito]
+Prrrrrrr... ♥
+*se esfrega em você*
+Você é meu humano favorito.
+
+[petisco]
+Peixinho! Miau!
+Hmm, peixe fresquinho!
+*nhac nhac* Miau!
+
+[bolinha_fim]
+Miau... cansei. Hora da soneca.
+Pegar bolinha é coisa séria!

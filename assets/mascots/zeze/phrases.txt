@@ -1,0 +1,25 @@
+# Falas próprias do Zezé (só os tópicos que mudam; o resto vem das falas padrão).
+
+[ola]
+Oi! Eu sou o Zezé!
+*pulinho* O Zezé chegou!
+
+[carinho]
+*mexe o narizinho*
+Hihi!
+*pulinho*
+Fofinho, né?
+
+[carinho_muito]
+*pulinhos de alegria* ♥
+Você é muito especial!
+♥ *mexe o narizinho* ♥
+
+[petisco]
+Cenourinha! Obrigado!
+*nhac nhac nhac*
+Cenoura é vida!
+
+[bolinha_fim]
+*ofegante* Cansei! Valeu!
+Essa foi boa! Mais tarde tem mais?

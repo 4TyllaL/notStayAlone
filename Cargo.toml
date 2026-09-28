@@ -1,0 +1,48 @@
+[package]
+name = "stayalone"
+version = "0.1.0"
+edition = "2021"
+description = "Um mascote leve que faz companhia na área de trabalho."
+license = "MIT"
+repository = "https://github.com/4TyllaL/notStayAlone"
+
+[[bin]]
+name = "StayAlone"
+path = "src/main.rs"
+
+[dependencies.windows-sys]
+version = "0.59"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Credentials",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Power",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Controls",
+    "Win32_UI_Controls_Dialogs",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+# Só na compilação (comprime o ícone PNG de 256 px); não entra no executável.
+[build-dependencies]
+miniz_oxide = "0.8"
+
+# O plugin de conversa é um executável separado: o app principal não carrega
+# nada de rede/HTTPS/JSON se você não usar o chat.
+[workspace]
+members = ["plugins/chat"]
+
+# Binário o menor possível.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

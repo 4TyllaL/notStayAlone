@@ -1,0 +1,30 @@
+# Falas próprias do Lance (só os tópicos que mudam; o resto vem das falas padrão).
+
+[ola]
+Au au! Eu sou o Lance!
+Au! O Lance chegou!
+
+[voltou]
+AU AU! Você voltou!
+*abana o rabo sem parar*
+Voltou! Voltou! Voltou!
+
+[carinho]
+Au au!
+*abana o rabo*
+Au! Mais carinho!
+*lambida*
+
+[carinho_muito]
+Você é o melhor humano do mundo! ♥
+*abana o rabo até cair*
+Au au! ♥
+
+[petisco]
+Um osso! Au au!
+OSSO! Obrigado!
+*rói rói* Au!
+
+[bolinha_fim]
+Au... cansei! Valeu pela brincadeira!
+De novo depois? Au au!

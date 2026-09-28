@@ -1,0 +1,40 @@
+Plugins do !StayAlone
+=====================
+
+Plugins são programas que dão novos poderes ao mascote. Cada pasta aqui dentro com
+um arquivo plugin.ini vira um plugin na aba Configurações → Plugins, onde você liga
+e desliga cada um.
+
+SEGURANÇA
+  - Todo plugin novo chega DESLIGADO. Ligue só plugins de quem você confia: eles
+    rodam no seu PC com as suas permissões.
+  - Ao ligar, o app guarda a "impressão digital" (SHA-256) do programa. Se o arquivo
+    mudar depois, o plugin é pausado até você ligar de novo.
+  - Cada execução tem no máximo 2 minutos e 16 KB de resposta.
+
+O plugin.ini
+  name  = Nome que aparece na lista
+  about = O que ele faz, em uma frase
+  kind  = avisos      (fala de tempos em tempos)
+          conversa    (responde quando você conversa com o mascote)
+  run   = programa.exe  ou  script.ps1   (dentro desta mesma pasta)
+  every = 60          (só para avisos: minutos entre uma vez e outra, de 5 a 1440)
+
+Como o plugin conversa com o app
+  O app escreve um JSON no stdin do plugin e lê a resposta no stdout (UTF-8).
+
+  avisos   recebe {"evento": "aviso", "mascote": "Jujubs", "feminino": true, "hora": 14}
+           e escreve o que o mascote deve falar (até 200 caracteres).
+           Não escreveu nada? O mascote fica quieto desta vez.
+
+  conversa recebe {"system": "...", "messages": [{"role": "user", "content": "oi"}]}
+           e escreve a resposta.
+
+  Deu erro? Escreva a mensagem no stderr e saia com código diferente de 0.
+
+Scripts PowerShell (.ps1)
+  Salve o arquivo como UTF-8 com BOM e comece o script com:
+    [Console]::InputEncoding  = [Text.Encoding]::UTF8
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8
+
+Veja a pasta "curiosidades": um exemplo completo, pronto para ligar.

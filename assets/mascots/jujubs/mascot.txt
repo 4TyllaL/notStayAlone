@@ -1,0 +1,357 @@
+# !StayAlone — sprites do mascote
+#
+# Formato:
+#   name <nome>              nome que aparece no menu
+#   article <o|a>            "o" (ele) ou "a" (ela) — deixa as falas no gênero certo
+#   about <descrição>        quem ele é (usado na conversa com IA)
+#   color <letra> <RRGGBB>   define uma cor (antes dos frames)
+#   frame <nome>             seguido de 16 linhas com 16 caracteres
+#   '.' = transparente | linhas começando com '#' são comentários
+#
+# Frames obrigatórios: idle blink walk1 walk2 yawn sleep1 sleep2 held1 held2
+#                      fall land happy1 happy2
+# Opcionais: idle2 (mania parado: rabo/orelha), look (olhando de lado),
+#            eat1 eat2 (comendo) e food (a comida favorita)
+#
+# Desenhe olhando para a DIREITA; o app espelha ao andar para a esquerda.
+name Jujubs
+article a
+about uma dinossaurinha verde, alegre, vaidosa com seu laço rosa e louca por jujubas
+
+color k 2b1e2f
+color o 7ccf6a
+color d 5aa84c
+color y fff0c9
+color p f59bb0
+color w ffffff
+color s ffb347
+color b ff6fa8
+color j ef476f
+color g 4cc9f0
+color q ffd23f
+color z 9fc5ff
+color h ef476f
+
+frame idle
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kookwooookwook
+..kookkooookkook
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame idle2
+................
+................
+................
+....k...k...b.b.
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kookwooookwook
+..kookkooookkook
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame blink
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kooooooooooook
+..kookkooookkook
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame look
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..koookwooookwok
+..koookkooookkok
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame walk1
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..koookwooookwok
+..koookkooookkok
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+..kkk.......kkk.
+
+frame walk2
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..koookwooookwok
+..koookkooookkok
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+....kkk...kkk...
+
+frame yawn
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kooooooooooook
+..kookkooookkook
+..kppookppkooppk
+..koooykkkkyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame sleep1
+zzzz............
+..z.............
+.z..............
+zzzz............
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kooooooooooook
+..kookkooookkook
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+
+frame sleep2
+................
+zzzz............
+..z.............
+.z..............
+zzzzk...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kooooooooooook
+..kookkooookkook
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+
+frame held1
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokkwooookwkok
+..kookkooookkook
+..kookkooookkook
+..kppookkkkooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+..kkk.......kkk.
+
+frame held2
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokkwooookwkok
+..kookkooookkook
+..kookkooookkook
+..kppookkkkooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+....kkk...kkk...
+
+frame fall
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokkwooookwkok
+..kookkooookkook
+..kookkooookkook
+..kppookppkooppk
+..koooykkkkyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+.kkk.........kkk
+
+frame land
+................
+................
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kooooooooooook
+..kookkooookkook
+..kppookookooppk
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+.kkk.........kkk
+
+frame happy1
+.....hh.hh......
+.....hhhhh......
+......hhh.......
+....k..hk..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kookkooookkook
+..kokookookookok
+..kppookookooppk
+..koooyyppyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame happy2
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kookkooookkook
+..kokookookookok
+..kppookookooppk
+..koooyyppyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+....kkk...kkk...
+................
+
+frame eat1
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kookkooookkook
+..kokookookookok
+..kppookookooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame eat2
+................
+................
+................
+....k...k..bb.bb
+...ksk.ksk.bbkbb
+..kkkkkkkkkkkkkk
+..kokooooooookok
+..kookkooookkook
+..kokookookookok
+..kppookkkkooppk
+..koooyykkyyoook
+..kooyyyyyyyyook
+kkkdoyyyyyyyyodk
+kooddddddddddddk
+.kkkkkkkkkkkkkkk
+...kkk.....kkk..
+
+frame food
+................
+................
+................
+................
+................
+................
+................
+................
+................
+................
+................
+................
+...kk...kk...kk.
+..kjjk.kggk.kqqk
+..kjjk.kggk.kqqk
+...kk...kk...kk.

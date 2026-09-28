@@ -1,0 +1,29 @@
+# Falas no feminino: aplicadas automaticamente a mascotes com "article a"
+# (antes das falas próprias da mascote). Só os tópicos que têm gênero.
+
+[obrigado]
+Isso aí!
+Mandou bem!
+Boa! Tô orgulhosa.
+Seu corpo agradece!
+
+[silencio]
+Tá bom, fico quietinha por uma hora.
+Shhh... Silêncio por uma hora.
+
+[ola]
+Oi! Eu sou a {nome}!
+A {nome} chegou!
+
+[petisco]
+Hmm, que delícia!
+Obrigada pelo petisco!
+*nhac nhac*
+
+[cheio]
+Tô cheia! Mais tarde, tá?
+Obrigada, mas ainda tô de barriga cheia.
+
+[carregando]
+Ahh, energia! Obrigada!
+Carregando... que alívio!

@@ -1,0 +1,26 @@
+# Falas próprias da Jujubs (só os tópicos que mudam; o resto vem das falas padrão,
+# já no feminino por causa do "article a").
+
+[ola]
+Rawr! Eu sou a Jujubs!
+A Jujubs chegou! Rawr!
+
+[carinho]
+Rawr!
+Hihi, rawr!
+*balança o rabinho*
+Cuidado com o meu laço!
+
+[carinho_muito]
+Rawr de amor! ♥
+Você é a minha pessoa favorita!
+*abraço de dinossaura* ♥
+
+[petisco]
+JUJUBAS! Minhas favoritas!
+*nhac nhac* Rawr!
+Obrigada! Doce é vida!
+
+[bolinha_fim]
+Rawr... cansei! Valeu pela brincadeira!
+Uma dinossaura também precisa descansar.
