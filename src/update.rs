@@ -4,7 +4,8 @@
 //!    à API do GitHub qual é a última release deste repositório.
 //! 2. Se houver versão mais nova, o painel mostra "Atualizar". Ao clicar, outro
 //!    filho `--baixar-versao` baixa o .exe **só** do endereço de releases deste
-//!    repositório e confere o SHA-256 informado pelo GitHub.
+//!    repositório, confere o SHA-256 informado pelo GitHub e a assinatura Ed25519
+//!    (`dontStayAlone.exe.sig`) feita com a chave de quem publica, que não fica no GitHub.
 //! 3. O app renomeia o .exe em uso para `.old`, põe o novo no lugar e abre o novo
 //!    com `--atualizado <pid>`; o novo espera o antigo fechar e apaga o `.old`.
 //!
@@ -34,6 +35,15 @@ const DOWNLOADS: &str = "https://github.com/4TyllaL/notStayAlone/releases/downlo
 const ASSET: &str = "dontStayAlone.exe";
 const MAX_API: usize = 512 * 1024;
 const MAX_EXE: usize = 16 * 1024 * 1024;
+const MAX_SIG: usize = 1024;
+
+/// Chave pública das releases (Ed25519). A privada fica só com quem publica
+/// (`cargo run --example assinar`): nem com acesso ao repositório dá para gerar um
+/// `.sig` que este app aceite.
+const RELEASE_KEY: [u8; 32] = [
+    0x76, 0x12, 0x4a, 0xb7, 0x62, 0x81, 0x0f, 0xab, 0x4b, 0x18, 0xdf, 0x56, 0xe3, 0x98, 0xb0, 0x97,
+    0x20, 0x6c, 0x9d, 0x20, 0x99, 0x00, 0xe5, 0x52, 0xf8, 0xe7, 0x21, 0x18, 0x0b, 0x81, 0x25, 0x2a,
+];
 
 /// Uma versão publicada: número, de onde baixar e o SHA-256 esperado.
 #[derive(Clone, PartialEq, Debug)]
@@ -80,6 +90,25 @@ fn parse_version(v: &str) -> Option<(u32, u32, u32)> {
 /// `candidate` é mais nova que `installed`? (nunca volta para uma versão antiga)
 pub fn is_newer(candidate: &str, installed: &str) -> bool {
     matches!((parse_version(candidate), parse_version(installed)), (Some(a), Some(b)) if a > b)
+}
+
+/// A frase assinada: amarra o arquivo (SHA-256) à versão, então uma release antiga
+/// assinada não passa por uma versão nova. Igual à de examples/assinar.rs.
+fn signed_message(version: &str, sha256: &str) -> String {
+    format!("!StayAlone {version} sha256:{sha256}")
+}
+
+/// `sig` (hexadecimal) é a assinatura de `key` para esta versão e este SHA-256?
+fn signature_ok(key: &[u8; 32], version: &str, sha256: &str, sig: &[u8]) -> bool {
+    let Some(sig) = std::str::from_utf8(sig).ok().map(str::trim).filter(|s| s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit())) else { return false };
+    let Some(bytes) = (0..128).step_by(2).map(|i| u8::from_str_radix(&sig[i..i + 2], 16).ok()).collect::<Option<Vec<u8>>>()
+    else {
+        return false;
+    };
+    match (ed25519_compact::PublicKey::from_slice(key), ed25519_compact::Signature::from_slice(&bytes)) {
+        (Ok(key), Ok(sig)) => key.verify(signed_message(version, sha256).as_bytes(), &sig).is_ok(),
+        _ => false,
+    }
 }
 
 /// Lê a resposta da API de releases do GitHub.
@@ -140,6 +169,13 @@ fn download(line: &str) -> Result<PathBuf, String> {
     }
     if !bytes.starts_with(b"MZ") {
         return Err(tr("o arquivo baixado não é um programa do Windows").into());
+    }
+    let (status, sig) = net::get(&format!("{}.sig", release.url), "application/octet-stream", MAX_SIG)?;
+    if status != 200 {
+        return Err(tr("a versão nova não veio com a assinatura do !StayAlone").into());
+    }
+    if !signature_ok(&RELEASE_KEY, &release.version, &release.sha256, &sig) {
+        return Err(tr("a assinatura da versão nova não confere; a atualização foi recusada").into());
     }
     let dir = folder().ok_or(tr("sem pasta de dados"))?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -241,6 +277,38 @@ mod tests {
         let release = parse_release(&api("v1.2.0", url)).unwrap();
         assert_eq!(release, Release { version: "1.2.0".into(), url: url.into(), sha256: SHA.into() });
         assert_eq!(Release::from_line(&release.to_line()), Some(release));
+    }
+
+    #[test]
+    fn only_signed_releases_are_accepted() {
+        use ed25519_compact::{KeyPair, Seed};
+        let keys = KeyPair::from_seed(Seed::generate());
+        let key: [u8; 32] = keys.pk.as_ref().try_into().unwrap();
+        let sign = |version: &str, sha: &str| {
+            let sig = keys.sk.sign(signed_message(version, sha).as_bytes(), None);
+            sig.as_ref().iter().map(|b| format!("{b:02x}")).collect::<String>() + "
+"
+        };
+        let good = sign("1.3.0", SHA);
+        assert!(signature_ok(&key, "1.3.0", SHA, good.as_bytes()));
+        // Outra versão, outro arquivo, outra chave ou lixo: recusado.
+        assert!(!signature_ok(&key, "9.0.0", SHA, good.as_bytes()));
+        assert!(!signature_ok(&key, "1.3.0", &SHA.replace('5', "6"), good.as_bytes()));
+        assert!(!signature_ok(&RELEASE_KEY, "1.3.0", SHA, good.as_bytes()));
+        assert!(!signature_ok(&key, "1.3.0", SHA, b"naohex"));
+        assert!(!signature_ok(&key, "1.3.0", SHA, format!("a{}b", "é".repeat(63)).as_bytes()));
+        assert!(!signature_ok(&key, "1.3.0", SHA, b""));
+    }
+
+    /// Antes de publicar: `cargo test --release -- --ignored release_is_signed` confere o
+    /// .exe de target\release e o .sig dele com a chave embutida, como o app fará.
+    #[test]
+    #[ignore]
+    fn release_is_signed() {
+        let exe = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(r"target\release\dontStayAlone.exe");
+        let bytes = fs::read(&exe).unwrap();
+        let sig = fs::read(exe.with_extension("exe.sig")).expect("falta o .sig: cargo run --example assinar");
+        assert!(signature_ok(&RELEASE_KEY, current(), &sha256::hex(&bytes), &sig), "assinatura não confere");
     }
 
     #[test]

@@ -1,7 +1,11 @@
 name: Release
 
 # Uma tag vX.Y.Z vira uma release: compila no GitHub (MSVC, com Control Flow Guard),
-# testa, confere as proteções, gera a atestação de origem e publica o .exe.
+# testa, confere as proteções, gera a atestação de origem e cria a release como
+# RASCUNHO. A chave que assina as atualizações não fica no GitHub: baixe o .exe do
+# rascunho, assine (`cargo run --example assinar -- X.Y.Z dontStayAlone.exe`), anexe o
+# .sig (`gh release upload vX.Y.Z dontStayAlone.exe.sig`) e só então publique. Sem o
+# .sig, o app recusa a atualização.
 on:
   push:
     tags: ["v*"]
@@ -57,4 +61,4 @@ jobs:
           gh release create "${{ github.ref_name }}" target/release/dontStayAlone.exe `
             --title "!StayAlone $env:VERSION" `
             --notes-file "docs/releases/v$env:VERSION.md" `
-            --latest
+            --draft

@@ -32,7 +32,8 @@ The binary is not code-signed yet, so Windows SmartScreen may warn on first run
 (*More info → Run anyway*). GitHub shows the file's SHA-256 next to the download.
 
 After that, the app **updates itself**: once a day it checks the latest GitHub release, and the
-panel offers the new version. The download is verified against the release's SHA-256 before it
+panel offers the new version. The download is verified against the release's SHA-256 and an
+Ed25519 signature made with a key that never leaves the maintainer's PC before it
 replaces the `.exe` (you can turn this off in Settings).
 
 ## Features
@@ -116,7 +117,8 @@ each is handled are in [`SECURITY.md`](SECURITY.md) (in Portuguese). Highlights:
 - Every input is bounded (mod files, AI replies, JSON depth, plugin output and run time).
 - New plugins start **off**; enabling one asks for confirmation and pins its SHA-256.
 - Updates only come from this repository's releases, are checked against the SHA-256
-  GitHub publishes, and never go back to an older version. Gallery files are checked
+  GitHub publishes **and** an Ed25519 signature (key kept offline, not on GitHub, so a
+  compromised repository can't push an update), and never go back to an older version. Gallery files are checked
   against the SHA-256 in `gallery/index.json`.
 - `winhttp.dll`, `dwmapi.dll` and `uxtheme.dll` are loaded from System32 only; binaries have
   ASLR and DEP and run as the regular user (`asInvoker`). The MSVC build adds Control Flow

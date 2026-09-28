@@ -33,6 +33,19 @@ features = [
     "Win32_UI_WindowsAndMessaging",
 ]
 
+# Confere a assinatura das atualizações (Ed25519). Só a verificação, no modo que
+# gera menos código (opt_size): sem PEM, sem gerador de números aleatórios. ~20 KB.
+[dependencies.ed25519-compact]
+version = "2.6"
+default-features = false
+features = ["std", "opt_size"]
+
+# `cargo run --example assinar`: gera a chave e assina releases (não entra no .exe).
+[dev-dependencies.ed25519-compact]
+version = "2.6"
+default-features = false
+features = ["std", "random"]
+
 # Só na compilação (comprime o ícone PNG de 256 px); não entra no executável.
 [build-dependencies]
 miniz_oxide = "0.8"

@@ -26,7 +26,8 @@ download.
 
 Na primeira vez, uma janela de boas-vindas ajuda a escolher o mascote, os lembretes e
 (opcional) a chave da IA. Depois o app **se atualiza sozinho**: uma vez por dia olha a última
-versão no GitHub e o painel oferece a nova. O download é conferido pelo SHA-256 da release antes
+versão no GitHub e o painel oferece a nova. O download é conferido pelo SHA-256 da release e por
+uma assinatura Ed25519, feita com uma chave que nunca sai do PC de quem publica, antes
 de trocar o `.exe` (dá para desligar em Configurações).
 
 ## Configurações
@@ -221,6 +222,24 @@ passa pelas boas-vindas, pelo painel, pelas Configurações (em português e em 
 pausa guiada e pelo atalho da conversa, e confere o que foi gravado. Ele se recusa a rodar com
 o app aberto e só fotografa as janelas do app; com `-Docs`, atualiza as imagens em `docs/`.
 
+### Publicar uma versão
+
+O app só aceita uma atualização assinada com a chave Ed25519 de quem publica (a pública
+está em `RELEASE_KEY`, `src/update.rs`; a privada em `%USERPROFILE%\.stayalone\release-key.txt`,
+fora do repositório — guarde uma cópia). Para cada release, anexe o `.sig` junto do `.exe`:
+
+```bash
+cargo run --release --example assinar -- 1.2.3 target/release/dontStayAlone.exe
+```
+
+```bash
+cargo test --release -- --ignored release_is_signed
+```
+
+```bash
+gh release create v1.2.3 target/release/dontStayAlone.exe target/release/dontStayAlone.exe.sig --notes-file docs/releases/v1.2.3.md
+```
+
 ## Personalizar e criar mascotes (mods)
 
 - **Configurações:** `%APPDATA%\StayAlone\config.ini` — mascote, tamanho, velocidade,
@@ -270,13 +289,14 @@ src/config.rs          config.ini, state.ini, chat.ini e "Iniciar com o Windows"
 src/plugins.rs         plugins: descoberta, aprovação por SHA-256, execução com limites
 src/sha256.rs          SHA-256 (plugins, atualizações e galeria)
 src/lang.rs            idioma da interface (português no código, tabela em inglês)
-src/update.rs          atualização automática pelas releases do GitHub
+src/update.rs          atualização automática pelas releases do GitHub (SHA-256 + Ed25519)
 src/gallery.rs         galeria da comunidade
 src/memory.rs          memória da conversa (memoria.txt)
 src/buddy.rs           o amigo na tela
 src/guide.rs           pausa guiada (passos e contagem, testável)
 src/accessory.rs       acessórios de época (chapéus em pixel art)
 tools/smoke.ps1        teste de tela numa pasta de dados isolada
+examples/assinar.rs    assina as releases (chave privada fora do repositório)
 src/welcome.rs         boas-vindas da primeira vez
 src/net.rs             HTTPS via WinHTTP (só nos processos filhos)
 src/child.rs           processos filhos com limite de tempo e de saída

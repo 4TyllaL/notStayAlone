@@ -309,6 +309,8 @@ const EN: &[(&str, &str)] = &[
     ("o Windows não deixou guardar a chave.", "Windows didn't let me save the key."),
     ("o arquivo baixado não confere com o da release (SHA-256)", "the downloaded file doesn't match the release (SHA-256)"),
     ("o arquivo baixado não é um programa do Windows", "the downloaded file isn't a Windows program"),
+    ("a versão nova não veio com a assinatura do !StayAlone", "the new version doesn't carry the !StayAlone signature"),
+    ("a assinatura da versão nova não confere; a atualização foi recusada", "the new version's signature doesn't match; the update was refused"),
     ("o download falhou (HTTP {})", "the download failed (HTTP {})"),
     ("o endereço precisa começar com https://", "the address must start with https://"),
     ("o modelo não respondeu nada (talvez max_tokens baixo demais).", "the model didn't answer anything (maybe max_tokens is too low)."),
