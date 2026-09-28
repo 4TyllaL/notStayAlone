@@ -63,7 +63,9 @@ Credenciais do Windows.
 | **FPR_UNO / FDP_IFC.1** — privacidade e fluxo | T.PRIVACIDADE | Sem hooks de teclado/mouse; só `GetLastInputInfo` (quando, nunca o quê). "Quieto em reuniões" lê só o nome do `.exe` da janela da frente, nunca o conteúdo. Fora a conversa (se você configurar), a procura de versão (desligável) e a Galeria (quando aberta), nada sai do PC; sem telemetria nem logs. |
 
 **Transparência:** Configurações → Sobre → *Segurança e privacidade* mostra ao usuário o
-estado real destas proteções (SHA-256 do `.exe` em uso, atualização assinada e com
+estado real destas proteções (versão e commit de origem, SHA-256 do `.exe` em uso,
+proteções lidas do cabeçalho PE do próprio processo — DEP, ASLR, ASLR de alta entropia, CFG —,
+atualização assinada e com
 confirmação, onde está a chave, serviços de rede ligados, início com o Windows, plugins que
 rodam programas), inclusive o que ainda falta (sem Authenticode).
 
@@ -72,9 +74,21 @@ rodam programas), inclusive o que ainda falta (sem Authenticode).
 - **Sem assinatura digital (Authenticode).** Para distribuir, assine o `.exe`: o
   Windows SmartScreen confia mais e dá para detectar adulteração.
 - **Control Flow Guard só no build MSVC.** A toolchain GNU não gera CFG. O build MSVC
-  (`.cargo/config.toml` e o workflow de release) liga CFG, CRT estático, `/CETCOMPAT` e
-  `/DEPENDENTLOADFLAG` (conferido por `.github/scripts/check-exe.ps1`). Um `.exe` compilado
-  com GNU não tem essas proteções extras.
+  (`.cargo/config.toml`) liga CFG, CRT estático, `/CETCOMPAT` e `/DEPENDENTLOADFLAG`, e
+  `tools/release.ps1` para a release se faltar alguma proteção (`.github/scripts/check-exe.ps1`).
+  **As releases 1.1.x a 1.2.4 saíram com a toolchain GNU, sem CFG** (DllCharacteristics
+  `0x0160`: DEP e ASLR, sem `GUARD_CF`); a partir da 1.2.5 todas saem do build MSVC. O
+  cartão *Segurança e privacidade* mostra as proteções lidas do cabeçalho do próprio `.exe`
+  em execução.
+- **Sem atestação de origem (Sigstore) por enquanto.** O workflow de release gera
+  `actions/attest-build-provenance`, mas o GitHub Actions da conta está bloqueado, então as
+  releases são compiladas localmente e **não há atestação publicada** — `gh attestation
+  verify` não encontra nada. O que existe no lugar: a assinatura Ed25519 (chave offline) e o
+  `BUILDINFO.txt` de cada release (commit, toolchain Rust/MSVC/Windows SDK fixada, flags,
+  SHA-256 do `.exe` e do `Cargo.lock`). O build é reproduzível bit a bit (`/Brepro`, data
+  de lançamento = data do commit, caminhos locais remapeados): qualquer pessoa pode compilar
+  o mesmo commit e comparar o SHA-256. Quando o Actions
+  voltar, a release volta a sair de lá com atestação.
 - **Atualização depende da chave de assinatura.** Controlar o GitHub não basta: sem a
   chave Ed25519 privada, a release não é aceita. O risco passa a ser essa chave (vazar ou
   se perder: sem ela, as versões instaladas não conseguem mais se atualizar sozinhas e é

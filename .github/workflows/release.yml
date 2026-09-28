@@ -17,14 +17,14 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
 
       - name: Rust (MSVC)
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
+          rustup toolchain install 1.98.1 --profile minimal --component clippy
+          rustup default 1.98.1  # a mesma de tools/release.ps1
 
       - name: Versão da tag, do Cargo.toml e notas
         shell: pwsh

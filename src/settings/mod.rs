@@ -128,8 +128,16 @@ const IDC_ABOUT_STATUS: i32 = 183;
 const IDC_SEC_FIRST: i32 = 184;
 /// Rótulo que corta o fim com "…" (winuser.h; o windows-sys não exporta).
 const SS_ENDELLIPSIS: u32 = 0x4000;
-const SECURITY_ROWS: [&str; 7] =
-    ["Este programa", "SHA-256 do .exe", "Atualizações", "Chave da API", "Conexões", "Iniciar com o Windows", "Plugins"];
+const SECURITY_ROWS: [&str; 8] = [
+    "Este programa",
+    "SHA-256 do .exe",
+    "Proteções",
+    "Atualizações",
+    "Chave da API",
+    "Conexões",
+    "Iniciar com o Windows",
+    "Plugins",
+];
 const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
@@ -677,25 +685,25 @@ unsafe fn build(hwnd: HWND) {
             .into_iter()
             .enumerate()
     {
-        let y = 214 + i as i32 * 30;
+        let y = 214 + i as i32 * 26;
         label!(6, name, x0, y, 170);
         label!(6, value, cx, y, 280);
     }
-    add(Some(6), "BUTTON", tr("Meus projetos"), button, 0, (x0, 344, 150, 32), IDC_ABOUT_PROJECTS);
-    add(Some(6), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 344, 170, 32), IDC_ABOUT_GITHUB);
-    add(Some(6), "BUTTON", tr("Procurar atualização"), button, 0, (x0 + 336, 344, 172, 32), IDC_ABOUT_UPDATE);
-    add(Some(6), "STATIC", "", 0, 0, (x0, 384, CONTENT - 2 * x0, 20), IDC_ABOUT_STATUS);
+    add(Some(6), "BUTTON", tr("Meus projetos"), button, 0, (x0, 330, 150, 32), IDC_ABOUT_PROJECTS);
+    add(Some(6), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 330, 170, 32), IDC_ABOUT_GITHUB);
+    add(Some(6), "BUTTON", tr("Procurar atualização"), button, 0, (x0 + 336, 330, 172, 32), IDC_ABOUT_UPDATE);
+    add(Some(6), "STATIC", "", 0, 0, (x0, 370, CONTENT - 2 * x0, 20), IDC_ABOUT_STATUS);
     // O que protege você, à vista (preenchido por `fill_security` quando a página abre).
-    section!(6, tr("Segurança e privacidade"), 436);
+    section!(6, tr("Segurança e privacidade"), 422);
     for (i, name) in SECURITY_ROWS.iter().enumerate() {
-        let y = 460 + i as i32 * 24;
+        let y = 446 + i as i32 * 23;
         label!(6, tr(name), x0, y, 170);
         add(Some(6), "STATIC", "", SS_ENDELLIPSIS, 0, (cx, y + 3, CONTENT - cx - x0, 20), IDC_SEC_FIRST + i as i32);
     }
     hint!(
         6,
         tr("Sem telemetria. O mascote em si nunca usa a rede: só processos separados, quando você conversa, procura versão ou abre a Galeria."),
-        628,
+        630,
         40
     );
 
@@ -772,6 +780,29 @@ fn site_of(url: &str) -> &str {
     if dots.len() < 2 { name } else { &name[dots[dots.len() - 2] + 1..] }
 }
 
+/// Commit de origem do build, curto: "58a94be" (ou "58a94be-dirty").
+fn short_commit() -> String {
+    let commit = env!("STAYALONE_COMMIT");
+    let (hash, dirty) = commit.split_once('-').unwrap_or((commit, ""));
+    let hash = &hash[..hash.len().min(7)];
+    if dirty.is_empty() { hash.into() } else { format!("{hash}-{dirty}") }
+}
+
+/// As proteções marcadas no próprio `.exe` em execução (DllCharacteristics do
+/// cabeçalho PE já mapeado na memória, sem ler o arquivo de novo).
+fn protections() -> String {
+    // SAFETY: o módulo principal fica mapeado a vida toda; os offsets são os do PE32+.
+    let flags = unsafe {
+        let base = GetModuleHandleW(null()) as *const u8;
+        let pe = base.add(std::ptr::read_unaligned(base.add(0x3C) as *const u32) as usize);
+        std::ptr::read_unaligned(pe.add(24 + 70) as *const u16)
+    };
+    let names = [(0x0100, "DEP"), (0x0040, "ASLR"), (0x0020, tr("ASLR alta entropia")), (0x4000, "CFG")];
+    let on: Vec<&str> = names.iter().filter(|(bit, _)| flags & bit != 0).map(|&(_, n)| n).collect();
+    let off: Vec<&str> = names.iter().filter(|(bit, _)| flags & bit == 0).map(|&(_, n)| n).collect();
+    if off.is_empty() { on.join(" · ") } else { fill(tr("{} (sem {})"), &[&on.join(" · "), &off.join(", ")]) }
+}
+
 /// Preenche o cartão com o estado atual (inclusive o que foi mudado e ainda não salvo).
 unsafe fn fill_security(hwnd: HWND) {
     let Some(st) = state(hwnd) else { return };
@@ -779,7 +810,7 @@ unsafe fn fill_security(hwnd: HWND) {
         std::env::current_exe().and_then(std::fs::read).map(|b| crate::sha256::hex(&b)).unwrap_or_default()
     });
     let sha = if sha.len() == 64 { format!("{}…{}", &sha[..20], &sha[44..]) } else { tr("não consegui ler").into() };
-    let program = fill(tr("v{} · sem assinatura Authenticode (ainda)"), &[&crate::update::current()]);
+    let program = fill(tr("v{} · commit {} · sem Authenticode (ainda)"), &[&crate::update::current(), &short_commit()]);
 
     let updates = if is_checked(hwnd, IDC_UPDATES) {
         tr("1× por dia; só instala assinadas e com o seu OK")
@@ -816,7 +847,7 @@ unsafe fn fill_security(hwnd: HWND) {
         fill(tr("{} ligado(s): rodam programas com as suas permissões"), &[&on])
     };
 
-    let values = [program, sha, updates.into(), key.into(), net.join(" · "), autostart.into(), plugins];
+    let values = [program, sha, protections(), updates.into(), key.into(), net.join(" · "), autostart.into(), plugins];
     for (i, value) in values.iter().enumerate() {
         set_text(hwnd, IDC_SEC_FIRST + i as i32, value);
     }

@@ -43,7 +43,7 @@ const MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?
 </assembly>
 "#;
 
-/// Data de hoje (UTC) como AAAA-MM-DD, sem dependências.
+/// Data de hoje (UTC) como AAAA-MM-DD, sem dependências (fonte sem git).
 fn today() -> String {
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let z = (secs / 86_400) as i64 + 719_468;
@@ -58,12 +58,37 @@ fn today() -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// Saída de um comando git (sem git ou fora de um repositório: `None`).
+fn git(args: &[&str]) -> Option<String> {
+    std::process::Command::new("git")
+        .args(args)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+/// Commit atual (12 dígitos), com "-dirty" se há mudanças não commitadas; "?" sem git.
+fn commit() -> String {
+    match git(&["rev-parse", "--short=12", "HEAD"]) {
+        Some(hash) if !hash.is_empty() => {
+            let dirty = git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
+            if dirty { format!("{hash}-dirty") } else { hash }
+        }
+        _ => "?".into(),
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={ICON_SPRITE}");
-    // Data de lançamento (página "Sobre"): a do build; muda junto com a versão no Cargo.toml.
-    println!("cargo:rerun-if-changed=Cargo.toml");
-    println!("cargo:rustc-env=STAYALONE_RELEASE_DATE={}", today());
+    // Commit de origem (cartão de segurança) e data de lançamento (página "Sobre"): a do
+    // commit, não a do build, para o mesmo commit sempre gerar o mesmo .exe.
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/index");
+    println!("cargo:rustc-env=STAYALONE_COMMIT={}", commit());
+    let date = git(&["log", "-1", "--format=%cs"]).filter(|d| d.len() == 10).unwrap_or_else(today);
+    println!("cargo:rustc-env=STAYALONE_RELEASE_DATE={date}");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }
@@ -97,6 +122,8 @@ fn main() {
         // - /DEPENDENTLOADFLAG:0x800: até as DLLs importadas vêm só de System32.
         println!("cargo:rustc-link-arg-bins=/CETCOMPAT");
         println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+        // Build reproduzível: sem data/hora no cabeçalho PE nem no id do PDB.
+        println!("cargo:rustc-link-arg-bins=/Brepro");
     }
 }
 

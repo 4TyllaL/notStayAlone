@@ -131,8 +131,13 @@ each is handled are in [`SECURITY.md`](SECURITY.md) (in Portuguese). Highlights:
 ## Build
 
 Requires Rust (`stable-x86_64-pc-windows-gnu` or MSVC toolchain). With MSVC,
-`.cargo/config.toml` turns on Control Flow Guard and a static CRT; the GitHub Actions
-workflows build, test and publish releases that way.
+`.cargo/config.toml` turns on Control Flow Guard and a static CRT. Releases are built with
+`tools/release.ps1`: a pinned MSVC toolchain (Rust 1.98.1), a clean git tree, a check that
+DEP, ASLR, high-entropy ASLR and CFG are all set, the Ed25519 update signature, and a
+`BUILDINFO.txt` published next to the `.exe` with the exact commit, Rust/Cargo/MSVC/Windows SDK
+versions, flags and hashes. The build is reproducible bit for bit (no timestamps, dates or
+local paths in the `.exe`): the same commit with the same toolchain, MSVC and SDK gives the same
+SHA-256. Releases up to 1.2.4 were built with the GNU toolchain and have no CFG.
 
 ```bash
 cargo build --release
