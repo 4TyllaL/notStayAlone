@@ -38,12 +38,23 @@ using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
 public static class Smoke {
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string c, string t);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string c, IntPtr t);
     [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint m, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
+    [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public int dx, dy; public uint data, flags, time; public IntPtr extra; public uint pad1, pad2; }
+
+    /// "Movimento" de mouse de zero pixel: o Windows conta como uso do PC (os
+    /// lembretes só contam tempo com alguém usando), mas o cursor não sai do lugar.
+    public static void Nudge() {
+        INPUT[] i = new INPUT[1];
+        i[0].type = 0; i[0].flags = 0x0001; // INPUT_MOUSE, MOUSEEVENTF_MOVE
+        SendInput(1, i, Marshal.SizeOf(typeof(INPUT)));
+    }
     public struct RECT { public int L, T, R, B; }
 
     public static Rectangle Rect(IntPtr h) {
@@ -93,7 +104,7 @@ function Check($ok, $what) {
     if ($ok) { Write-Host "  ok    $what" -ForegroundColor Green }
     else { Write-Host "  FALHA $what" -ForegroundColor Red; $script:failures++ }
 }
-function Find($class) { [Smoke]::FindWindowW($class, $null) }
+function Find($class) { [Smoke]::FindWindowW($class, [IntPtr]::Zero) }
 function WaitFor($class, $seconds = 5) {
     $until = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $until) {
@@ -148,6 +159,7 @@ function Save($bmp, $name, [switch]$ForDocs) {
 function Shoot-Layered($hwnd, $name, [switch]$ForDocs, $margin = 24) {
     $r = [Smoke]::Rect($hwnd)
     $area = [Drawing.Rectangle]::Inflate($r, $margin, $margin)
+    $area.Intersect([Windows.Forms.SystemInformation]::VirtualScreen) # só o que existe na tela
     $form = New-Object Windows.Forms.Form
     $form.FormBorderStyle = "None"; $form.ShowInTaskbar = $false; $form.StartPosition = "Manual"
     $form.Bounds = $area
@@ -168,6 +180,9 @@ function Open-Panel {
     [Smoke]::PostMessageW($m, 0x0205, [IntPtr]0, (Lparam 20 20)) | Out-Null # WM_RBUTTONUP
     $f = WaitFor "StayAloneFlyout"
     Start-Sleep -Milliseconds 700 # termina de aparecer
+    # O painel abre onde está o seu mouse: tira o destaque do item que ficou embaixo dele.
+    [Smoke]::PostMessageW($f, 0x02A3, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # WM_MOUSELEAVE
+    Start-Sleep -Milliseconds 200
     $f
 }
 function Close-Panel($f) {
@@ -183,7 +198,8 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     if ($s -eq [IntPtr]::Zero) { return }
     Start-Sleep -Milliseconds 800
     foreach ($page in $pages.GetEnumerator()) {
-        $y = 191 + 44 * $page.Key
+        # Páginas da navegação a cada 44 px; "Sobre" (6) fica no rodapé da barra lateral.
+        $y = if ($page.Key -eq 6) { 656 } else { 191 + 44 * $page.Key }
         [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
         [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
         Start-Sleep -Milliseconds 700
@@ -193,7 +209,7 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     Start-Sleep -Milliseconds 500
 }
 
-$pages = [ordered]@{ 0 = "general"; 1 = "reminders"; 2 = "chat"; 3 = "maker"; 4 = "plugins"; 5 = "gallery" }
+$pages = [ordered]@{ 0 = "general"; 1 = "reminders"; 2 = "chat"; 3 = "maker"; 4 = "plugins"; 5 = "gallery"; 6 = "about" }
 
 try {
     Write-Host "1. Primeira vez (boas-vindas)"
@@ -230,6 +246,38 @@ try {
     Check ((Get-Content "$script:data\StayAlone\config.ini" -Raw) -notmatch "language=en") "português continua português"
     Start-App "en" "mascot=calcifer`nlanguage=en`ntheme=light`nupdates=off`n"
     Shoot-Settings "en-" $pages
+    Stop-App
+
+    Write-Host "4. Pausa guiada e atalho (leva uns 2 minutos; não digite enquanto isso)"
+    Start-App "pausa" "mascot=calcifer`nlanguage=pt`nupdates=off`nwater=off`nstretch=off`neyes=on`neyes_minutes=1`n"
+    $m = Find "StayAloneMascot"
+    [Smoke]::PostMessageW($m, 0x0312, [IntPtr]1, [IntPtr]::Zero) | Out-Null # WM_HOTKEY (Ctrl+Alt+M)
+    Check ((WaitFor "StayAloneChatInput" 3) -ne [IntPtr]::Zero) "Ctrl+Alt+M abre a conversa"
+    $c = Find "StayAloneChatInput"
+    if ($c -ne [IntPtr]::Zero) { [Smoke]::PostMessageW($c, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
+    # O lembrete de olhos (1 min de uso) aparece; um clique no balão começa a pausa guiada.
+    # O primeiro balão pode ser o "boa tarde" da abertura: o lembrete só vem depois de
+    # 1 minuto de uso, então a busca começa perto disso.
+    $bubble = [IntPtr]::Zero
+    $start = Get-Date
+    while (((Get-Date) - $start).TotalSeconds -lt 50) { [Smoke]::Nudge(); Start-Sleep -Seconds 2 }
+    $until = (Get-Date).AddSeconds(100)
+    while ((Get-Date) -lt $until) {
+        [Smoke]::Nudge()
+        $bubble = Find "StayAloneBubble"
+        if ($bubble -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($bubble)) { break }
+        Start-Sleep -Seconds 2
+    }
+    Check ($bubble -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($bubble)) "lembrete de olhos apareceu"
+    if ($bubble -ne [IntPtr]::Zero) {
+        Shoot-Layered $bubble "reminder-eyes"
+        [Smoke]::PostMessageW($m, 0x8002, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # clique no balão
+        Start-Sleep -Seconds 3
+        Check ([Smoke]::IsWindowVisible($bubble)) "pausa guiada começou"
+        Shoot-Layered $bubble "guide-eyes"
+        Start-Sleep -Seconds 24
+        Shoot-Layered $bubble "guide-done"
+    }
     Stop-App
 
     if ($Docs) {

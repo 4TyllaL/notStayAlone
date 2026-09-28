@@ -69,7 +69,15 @@ pub enum Page {
     Maker,
     Plugins,
     Gallery,
+    /// Fora da lista: aberta pelo item "Sobre" no rodapé da barra lateral.
+    About,
 }
+
+/// Índice da página "Sobre" (depois das páginas da navegação).
+const ABOUT: usize = Page::About as usize;
+/// Links da página "Sobre".
+const PROJECTS_URL: &str = "https://4tyllal.github.io/#projects";
+const GITHUB_URL: &str = "https://github.com/4TyllaL/notStayAlone";
 
 const PAGES: [(Page, char, &str); 6] = [
     (Page::General, icon::HOME, "Geral"),
@@ -110,6 +118,8 @@ const IDC_GALLERY_INFO: i32 = 171;
 const IDC_GALLERY_INSTALL: i32 = 172;
 const IDC_GALLERY_RELOAD: i32 = 173;
 const IDC_GALLERY_STATUS: i32 = 174;
+const IDC_ABOUT_PROJECTS: i32 = 180;
+const IDC_ABOUT_GITHUB: i32 = 181;
 const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
@@ -639,6 +649,28 @@ unsafe fn build(hwnd: HWND) {
     add(Some(5), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 118, 460, 140, 30), IDC_GALLERY_RELOAD);
     add(Some(5), "STATIC", "", 0, 0, (x0, 500, CONTENT - 2 * x0, 40), IDC_GALLERY_STATUS);
 
+    // --- Sobre
+    section!(6, "!StayAlone", 116);
+    hint!(
+        6,
+        tr("Um mascote em pixel art que faz companhia na área de trabalho: lembra de beber água e fazer pausas, conversa com você e fica levinho, feito direto na API do Windows."),
+        142,
+        60
+    );
+    let version = crate::update::current();
+    let date = release_date();
+    for (i, (name, value)) in
+        [(tr("Versão"), version), (tr("Lançada em"), date.as_str()), (tr("Autor"), "Atylla Azevedo"), (tr("Licença"), "MIT")]
+            .into_iter()
+            .enumerate()
+    {
+        let y = 214 + i as i32 * 30;
+        label!(6, name, x0, y, 170);
+        label!(6, value, cx, y, 280);
+    }
+    add(Some(6), "BUTTON", tr("Meus projetos"), button, 0, (x0, 344, 150, 32), IDC_ABOUT_PROJECTS);
+    add(Some(6), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 344, 170, 32), IDC_ABOUT_GITHUB);
+
     // --- Rodapé (fora dos cartões)
     add(None, "BUTTON", tr("Salvar"), button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
     add(None, "BUTTON", tr("Cancelar"), button, 0, (CONTENT - 20 - 104, FOOTER, 104, 32), IDCANCEL);
@@ -684,7 +716,7 @@ fn check_toggled(nm: &NMLISTVIEW) -> Option<bool> {
 
 unsafe fn show_page(hwnd: HWND, page: usize) {
     let Some(st) = state(hwnd) else { return };
-    st.page = page.min(PAGES.len() - 1);
+    st.page = page.min(ABOUT);
     for &(p, control) in &st.pages {
         ShowWindow(control, if p == st.page { SW_SHOW } else { SW_HIDE });
     }
@@ -945,7 +977,7 @@ unsafe fn show_key_status(hwnd: HWND) {
         (tr("Use só letras, números e _ no nome.").to_string(), false)
     } else {
         match secret::find(&name) {
-            Some(KeySource::Vault) => (tr("✓ Chave salva no Windows.").to_string(), true),
+            Some(KeySource::Vault) => (tr("✓ Chave salva.").to_string(), true),
             Some(KeySource::Environment) => (fill(tr("✓ Usando a variável de ambiente {}."), &[&name]), false),
             None => (tr("Nenhuma chave salva ainda.").to_string(), false),
         }
@@ -1423,12 +1455,28 @@ fn nav_rect(i: usize, dpi: u32) -> RECT {
     RECT { left: scale(12, dpi), top: scale(top, dpi), right: scale(SIDEBAR - 12, dpi), bottom: scale(top + 40, dpi) }
 }
 
+/// O item "Sobre", no rodapé da barra lateral.
+fn about_rect(dpi: u32) -> RECT {
+    RECT { left: scale(12, dpi), top: scale(HEIGHT - 56, dpi), right: scale(SIDEBAR - 12, dpi), bottom: scale(HEIGHT - 16, dpi) }
+}
+
 fn nav_hit(lp: LPARAM, dpi: u32) -> Option<usize> {
     let (x, y) = ((lp & 0xFFFF) as i16 as i32, ((lp >> 16) & 0xFFFF) as i16 as i32);
-    (0..PAGES.len()).find(|&i| {
-        let r = nav_rect(i, dpi);
-        x >= r.left && x < r.right && y >= r.top && y < r.bottom
-    })
+    let inside = |r: RECT| x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+    (0..PAGES.len()).find(|&i| inside(nav_rect(i, dpi))).or(inside(about_rect(dpi)).then_some(ABOUT))
+}
+
+/// Data de lançamento (gravada na compilação), no formato do idioma.
+fn release_date() -> String {
+    let date = env!("STAYALONE_RELEASE_DATE"); // AAAA-MM-DD
+    let (year, month, day) = (&date[0..4], &date[5..7], &date[8..10]);
+    if !crate::lang::is_english() {
+        return format!("{day}/{month}/{year}");
+    }
+    const MONTHS: [&str; 12] =
+        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    let m = month.parse::<usize>().unwrap_or(1).clamp(1, 12);
+    format!("{} {}, {year}", MONTHS[m - 1], day.trim_start_matches('0'))
 }
 
 unsafe fn paint(hwnd: HWND) {
@@ -1454,8 +1502,10 @@ unsafe fn paint(hwnd: HWND) {
     c.sprite_fit(bx + (box_size - s(64)) / 2, s(24) + (box_size - s(64)) / 2, s(64), &st.preview.1);
     c.text(st.bold, &st.preview.0, RECT { left: 0, top: s(116), right: side, bottom: s(140) }, theme::text(), center);
     c.text(st.small, tr("Configurações"), RECT { left: 0, top: s(138), right: side, bottom: s(156) }, theme::muted(), center);
-    for (i, &(_, glyph, label)) in PAGES.iter().enumerate() {
-        let r = nav_rect(i, st.dpi);
+    let version = fill(tr("Sobre · v{}"), &[&crate::update::current()]);
+    let items = PAGES.iter().map(|&(_, glyph, label)| (glyph, tr(label).to_string())).chain(std::iter::once((icon::INFO, version)));
+    for (i, (glyph, label)) in items.enumerate() {
+        let r = if i == ABOUT { about_rect(st.dpi) } else { nav_rect(i, st.dpi) };
         let (x, y, w, h) = (r.left, r.top, r.right - r.left, r.bottom - r.top);
         let selected = i == st.page;
         if selected {
@@ -1467,14 +1517,13 @@ unsafe fn paint(hwnd: HWND) {
         let (ink, font) = if selected { (theme::accent(), st.bold) } else { (theme::muted(), st.font) };
         c.text(st.icons, &glyph.to_string(), RECT { left: x + s(14), top: y, right: x + s(38), bottom: y + h }, ink, center);
         let text_ink = if selected { theme::text() } else { theme::muted() };
-        c.text(font, tr(label), RECT { left: x + s(46), top: y, right: x + w - s(6), bottom: y + h }, text_ink, left);
+        c.text(font, &label, RECT { left: x + s(46), top: y, right: x + w - s(6), bottom: y + h }, text_ink, left);
     }
-    let version = format!("!StayAlone v{}", crate::update::current());
-    c.text(st.small, &version, RECT { left: 0, top: height - s(34), right: side, bottom: height - s(12) }, theme::disabled(), center);
 
     // Título da página e os cartões atrás dos controles.
     let title = RECT { left: side + s(CARD_X), top: s(14), right: width - s(20), bottom: s(50) };
-    c.text(st.title, tr(PAGES[st.page].2), title, theme::text(), left);
+    let page_title = if st.page == ABOUT { tr("Sobre") } else { tr(PAGES[st.page].2) };
+    c.text(st.title, page_title, title, theme::text(), left);
     for (_, r) in st.cards.iter().filter(|(p, _)| *p == st.page) {
         let (x, y) = (side + s(r.left), s(r.top - SHIFT));
         c.card((x, y, s(r.right - r.left), s(r.bottom - r.top)), s(12), argb(theme::card()), argb(theme::border()));
@@ -1568,6 +1617,10 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     }
                 }
                 IDC_ADD | IDC_UPDATE | IDC_REMOVE => on_reminder_command(hwnd, id),
+                IDC_ABOUT_PROJECTS | IDC_ABOUT_GITHUB => {
+                    let url = if id == IDC_ABOUT_PROJECTS { PROJECTS_URL } else { GITHUB_URL };
+                    ShellExecuteW(hwnd, w("open").as_ptr(), w(url).as_ptr(), null(), null(), SW_SHOWNORMAL);
+                }
                 IDC_PROVIDER if code == CBN_SELCHANGE => {
                     let i = combo_index(hwnd, IDC_PROVIDER);
                     if let Some(st) = state(hwnd).filter(|_| i < PROVIDERS.len()) {

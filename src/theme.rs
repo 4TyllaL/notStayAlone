@@ -121,6 +121,7 @@ pub mod icon {
     pub const MUTE: char = '\u{E74F}';
     pub const HIDE: char = '\u{ED1A}';
     pub const WATER: char = '\u{EB42}';
+    pub const INFO: char = '\u{E946}';
     pub const CALENDAR: char = '\u{E787}';
     pub const POWER: char = '\u{E7E8}';
     pub const CHEVRON: char = '\u{E76C}';

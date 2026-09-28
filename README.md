@@ -39,12 +39,17 @@ replaces the `.exe` (you can turn this off in Settings).
 
 - **Four mascots:** Calcifer (cat), Lance (dog), Zezé (bunny) and Jujubs (dinosaur),
   each with their own lines. Lines switch to the feminine form for "she" mascots.
-- **A buddy on screen:** pick a second mascot that walks around, visits the first one and
-  chases the ball too.
+- **A buddy on screen:** pick a second mascot that walks around, visits the first one,
+  naps next to it, shares the treat and chases the ball too.
 - **Companionship:** notices when you leave and come back, gentle reminders counted only
   while you actually use the PC (water, stretch, rest your eyes, plus your own), affection
-  hearts, a daily summary and an optional focus timer (pomodoro). Log each glass of water
-  from the panel (or `--agua`) so it shows up in the summary.
+  hearts, a daily summary and a focus timer (pomodoro) with your own durations — reminders
+  can wait for the break.
+- **Water goal:** log each glass from the panel (or `--agua`) and watch the progress bar;
+  the mascot celebrates the goal and your streak of days, and on Monday mornings it sums up
+  the last week.
+- **Guided breaks:** click the eyes or stretch reminder and the mascot walks you through
+  it, step by step, with a countdown.
 - **Routine and mood:** birthday wishes, Monday and Friday lines, a nudge after three hours
   without a break, and it stays **quiet during meetings** (Teams, Zoom, Webex... — it only
   checks the name of the program in front, never the screen).
@@ -61,6 +66,10 @@ replaces the `.exe` (you can turn this off in Settings).
   Only mascots — drawings and lines in plain text, nothing that runs on your PC — and every
   file is checked against its SHA-256 before it's written.
 - **Dark mode:** follows Windows, or choose light/dark in Settings.
+- **Seasonal hats:** a Santa hat at Christmas, a witch hat at Halloween, a straw hat in
+  June and a party hat on your birthday and New Year's.
+- **Ctrl+Alt+M** opens the chat from anywhere (only that key combination is registered;
+  the app never reads the keyboard).
 - **Plugins:** your own `.exe` or PowerShell scripts that make the mascot say things on a
   schedule, or that answer the chat. Toggled in the settings, verified by SHA-256.
 - **Mods:** mascots are plain-text files, so you can make and share your own.
@@ -68,12 +77,19 @@ replaces the `.exe` (you can turn this off in Settings).
 ## Screenshots
 
 <p align="center">
-  <img src="docs/panel.png" alt="Mascot panel: quick actions, mascot picker, size selector and toggles" width="30%">
+  <img src="docs/panel.png" alt="Mascot panel: quick actions, mascot picker, water progress, size selector and toggles" width="30%">
   <img src="docs/settings-general.png" alt="Settings: sidebar with the current mascot and cards" width="66%">
 </p>
 <p align="center">
-  <img src="docs/settings-maker.png" alt="Mascot maker: 16x16 pixel editor, palette and AI drawing" width="49%">
-  <img src="docs/settings-plugins.png" alt="Plugins page: installed plugins you can switch on and off" width="49%">
+  <img src="docs/settings-reminders.png" alt="Reminders page: your reminders, the water goal and focus settings" width="49%">
+  <img src="docs/settings-maker.png" alt="Mascot maker: pixel editor, palette, poses and AI drawing" width="49%">
+</p>
+<p align="center">
+  <img src="docs/panel-dark.png" alt="The panel in dark mode" width="30%">
+  <img src="docs/settings-dark-chat.png" alt="Chat settings in dark mode" width="66%">
+</p>
+<p align="center">
+  <img src="docs/mascot-hat.png" alt="Calcifer wearing a party hat on your birthday" width="96">
 </p>
 
 ## How it stays light
@@ -124,11 +140,19 @@ build time (`build.rs`), no external tools needed.
 cargo test
 ```
 
+`tools/smoke.ps1` is a UI smoke test: it opens the real app with an isolated data folder,
+goes through the welcome, the panel, the settings (Portuguese and English), a guided break
+and the chat shortcut, and checks what was saved. It refuses to run while the app is open
+and only screenshots the app's own windows; `-Docs` refreshes the images in `docs/`.
+
 ## Usage
 
 - **Click** the mascot to pet it; **drag** to carry and throw it.
 - **Right-click** it (or click the tray icon) to open the panel: treat, ball, chat, focus
-  timer, switch mascot, size, silence, settings.
+  timer, switch mascot, size, water, silence, settings.
+- **Ctrl+Alt+M** opens the chat (can be turned off in Settings → Chat).
+- **Settings → About** (at the bottom of the sidebar) shows the version, the release date and
+  links to the author's projects page and to this repository.
 - Command line (handy for Windows shortcuts; works while the app is running):
   `dontStayAlone.exe --bolinha` (ball), `--petisco` (treat), `--conversar` (chat),
   `--agua` (I drank water), `--resumo` (daily summary), `--esconder` (hide/show),

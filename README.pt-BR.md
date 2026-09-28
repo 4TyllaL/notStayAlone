@@ -37,8 +37,9 @@ com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
 - **Geral:** mascote, **amigo na tela** (um segundo mascote que passeia e visita o
   primeiro), tamanho, velocidade, tempo para considerar que você saiu, seu aniversário,
   iniciar com o Windows, procurar versões novas, ficar quieto em reuniões, tema (claro,
-  escuro ou igual ao Windows) e idioma.
-- **Lembretes:** os três embutidos e quantos lembretes seus quiser.
+  escuro ou igual ao Windows), idioma e acessórios de época.
+- **Lembretes:** os três embutidos e quantos lembretes seus quiser; a **meta de água**
+  (copos por dia) e o **foco** (minutos de foco e de pausa, e se os lembretes esperam a pausa).
 - **Conversa:** serviço de IA, modelo e a **chave da API** (fica no Gerenciador de
   Credenciais do Windows, protegida pela sua conta — nunca em arquivo), com botão de teste.
   E a **memória**: ligada, o mascote lembra do que você conta (uma prova na sexta, o nome
@@ -50,6 +51,8 @@ com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
   Mascotes podem ser 16×16 ou 32×32 — ou descreva o mascote e peça para a **IA desenhar**,
   depois ajuste. "Salvar e usar" já coloca ele na tela (fica em `%APPDATA%\StayAlone\mascots\`).
 - **Plugins:** liga e desliga os plugins (veja abaixo), com botão de teste.
+- **Sobre** (no rodapé da barra lateral): o que é o app, a versão, a data de lançamento e
+  links para a minha página de projetos e para este repositório.
 - **Galeria:** mascotes da comunidade, instalados com um clique. Só mascotes — desenho e
   falas em texto, nada que rode no seu PC. Os arquivos vêm da pasta [`gallery/`](gallery)
   deste repositório e são conferidos (SHA-256) antes de gravar. Para publicar o seu, mande
@@ -143,8 +146,13 @@ Troque clicando no desenho dele no painel. Cada um tem falas próprias ("Miau!",
   volta, acorda feliz e comemora — isso conta como uma pausa no dia.
 - Lembretes gentis, contados só em tempo de uso: beber água (45 min),
   alongar (60 min) e descansar os olhos (20 min, desligado por padrão).
-  Clique no balão para confirmar ("bebi água!"), ou use **Bebi um copo d'água** no painel
+  Clique no balão para confirmar ("bebi água!"), ou use **Bebi água** no painel
   (ou `--agua`) sempre que beber — conta no resumo do dia. Voltar de uma pausa zera o de alongar.
+- **Pausa guiada:** no lembrete de olhos ou de alongar, clique no balão e o mascote conduz a
+  pausa com você, passo a passo, com contagem ("Olhe para algo bem longe... 18").
+- **Meta de água** (8 copos por padrão): barrinha de progresso no painel; ele comemora quando
+  você bate a meta e conta os dias seguidos. Na segunda de manhã, resume a semana que passou
+  (tempo juntos, pausas e água). O histórico fica só no `state.ini`, no seu PC.
 - Nunca vira metralhadora: no mínimo 2 min entre lembretes; silenciado ou escondido,
   os lembretes são descartados (não acumulam); em tela cheia, esperam.
 - Depois da meia-noite, sugere descansar (no máximo 1× por hora).
@@ -155,10 +163,17 @@ Troque clicando no desenho dele no painel. Cada um tem falas próprias ("Miau!",
 - **Afeto** (♥ na dica do ícone): sobe com carinho, pausas, água, petiscos e
   brincadeiras; cai bem devagar e nunca abaixo de um piso.
 - **Resumo do dia** (automático após as 18h, ou pelo painel): tempo juntos, pausas e água.
-- **Foco** (pomodoro 25/5 min) opcional, pelo painel.
+- **Foco** (pomodoro, 25/5 min por padrão, ajustável) pelo painel; durante o foco os
+  lembretes esperam a pausa.
 - **Rotina:** parabéns no seu aniversário, falas de segunda e de sexta, um toque depois de
   3 horas sem pausa, e fica **quieto em reuniões** (Teams, Zoom, Webex... — ele olha só o
   nome do programa na frente, nunca a tela).
+- **O amigo na tela** visita o principal: se ele estiver dormindo, cochila junto; acordados,
+  comemoram e às vezes se cumprimentam; e dividem o petisco.
+- **Acessórios de época:** gorro no Natal, chapéu de bruxa no Halloween, chapéu de palha na
+  festa junina e chapéu de festa no seu aniversário e no Ano-Novo.
+- **Ctrl+Alt+M** abre a conversa de qualquer lugar (o app registra só essa combinação e nunca
+  lê o teclado; dá para desligar em Configurações → Conversa).
 
 **Privacidade:** nada vai para a internet (a não ser a conversa com a IA, se você
 configurar). Ele nunca lê o teclado — sabe só *se* houve atividade (`GetLastInputInfo`).
@@ -171,7 +186,7 @@ registrada. Detalhes de segurança em [`SECURITY.md`](SECURITY.md).
 - atalhos grandes: **Petisco**, **Bolinha**, **Conversar** e **Foco**;
 - trocar de mascote clicando no desenho (o **+** abre o criador de mascotes);
 - tamanho num seletor (Mini, P, M, G) e interruptores para silenciar e esconder;
-- Bebi um copo d'água (com a conta de hoje), Lembretes, Resumo do dia, Configurações e Sair;
+- Bebi água (com a barrinha da meta), Lembretes, Resumo do dia, Configurações e Sair;
 - uma faixa "Versão nova disponível" quando há atualização.
 
 **Linha de comando** — útil para atalhos do Windows; funciona com o app já aberto:
@@ -200,6 +215,11 @@ partir do sprite do Calcifer (`build.rs`), sem ferramentas externas.
 ```bash
 cargo test
 ```
+
+O `tools/smoke.ps1` é um teste de tela: abre o app de verdade numa pasta de dados isolada,
+passa pelas boas-vindas, pelo painel, pelas Configurações (em português e em inglês), por uma
+pausa guiada e pelo atalho da conversa, e confere o que foi gravado. Ele se recusa a rodar com
+o app aberto e só fotografa as janelas do app; com `-Docs`, atualiza as imagens em `docs/`.
 
 ## Personalizar e criar mascotes (mods)
 
@@ -254,6 +274,9 @@ src/update.rs          atualização automática pelas releases do GitHub
 src/gallery.rs         galeria da comunidade
 src/memory.rs          memória da conversa (memoria.txt)
 src/buddy.rs           o amigo na tela
+src/guide.rs           pausa guiada (passos e contagem, testável)
+src/accessory.rs       acessórios de época (chapéus em pixel art)
+tools/smoke.ps1        teste de tela numa pasta de dados isolada
 src/welcome.rs         boas-vindas da primeira vez
 src/net.rs             HTTPS via WinHTTP (só nos processos filhos)
 src/child.rs           processos filhos com limite de tempo e de saída

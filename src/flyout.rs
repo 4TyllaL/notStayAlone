@@ -206,7 +206,7 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
         (n, _) => Right::Note(fill(tr("{} hoje"), &[&n])),
     };
     let rows = [
-        (icon::WATER, tr("Bebi um copo d'água"), water, Action::Water),
+        (icon::WATER, tr("Bebi água"), water, Action::Water),
         (icon::MUTE, tr("Silenciar por 1 hora"), Right::Switch(m.silenced), Action::Silence),
         (icon::HIDE, tr("Esconder o mascote"), Right::Switch(m.hidden), Action::Hide),
         (icon::BELL, tr("Lembretes"), Right::Note(reminders), Action::Reminders),
