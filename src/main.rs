@@ -151,6 +151,7 @@ fn main() {
 
         let first_run = !config::exists();
         let config = Config::load();
+        apply_theme(config.theme);
         let base_phrases = load_asset("phrases.txt", phrases::EMBEDDED, Phrases::parse);
         let props = Sheet::parse(sprite::PROPS).expect("props embutidos válidos");
         let (pack, art, phrases) = match load_mascot(&config.mascot, &base_phrases) {
@@ -1018,6 +1019,9 @@ impl App {
         self.config.birthday = new.birthday;
         self.config.quiet_in_meetings = new.quiet_in_meetings;
         self.config.memory = new.memory;
+        if new.theme != self.config.theme {
+            apply_theme(new.theme);
+        }
         self.config.theme = new.theme;
         self.config.language = new.language;
         self.companion.set_settings(new.companion.clone());
@@ -1367,6 +1371,13 @@ unsafe fn app_of(hwnd: HWND) -> Option<&'static mut App> {
     (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App).as_mut()
 }
 
+/// Liga o tema claro ou escuro das janelas desenhadas pelo app.
+unsafe fn apply_theme(theme: config::Theme) {
+    let dark = theme::resolve(theme);
+    theme::set_dark(dark);
+    ui::allow_dark_mode(dark);
+}
+
 /// Hoje, para a memória e a conversa: "28/09, domingo".
 fn today() -> String {
     const WEEKDAYS: [&str; 7] = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
@@ -1597,6 +1608,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             app.on_display_change();
         }
         WM_SETTINGCHANGE if wp as u32 == SPI_SETWORKAREA => app.on_display_change(),
+        // O Windows trocou entre claro e escuro: acompanha, se o tema for "Igual ao Windows".
+        WM_SETTINGCHANGE if lp != 0 && win::wide_eq(lp as *const u16, "ImmersiveColorSet") => {
+            apply_theme(app.config.theme);
+        }
         WM_ENDSESSION if wp != 0 => app.save_state(), // Windows desligando
         WM_DESTROY => {
             app.shutdown();

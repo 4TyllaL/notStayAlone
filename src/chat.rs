@@ -195,7 +195,7 @@ pub unsafe fn open(owner: HWND, placeholder: &str, center_x: i32, bottom: i32, w
     if window.is_null() {
         return;
     }
-    win::round_corners(window, theme::BORDER);
+    win::round_corners(window, theme::border());
     // Campo sem borda entre o ícone (à esquerda) e o botão de enviar (à direita).
     let font = ui_font(s(15), FW_NORMAL);
     let edit_h = s(22);
@@ -214,6 +214,7 @@ pub unsafe fn open(owner: HWND, placeholder: &str, center_x: i32, bottom: i32, w
         null(),
     );
     SendMessageW(edit, WM_SETFONT, font as WPARAM, 1);
+    crate::ui::theme_control(edit, "EDIT");
     SendMessageW(edit, EM_SETCUEBANNER, 1, w(placeholder).as_ptr() as LPARAM);
     SendMessageW(edit, EM_LIMITTEXT, 500, 0);
     let input = Box::new(Input {
@@ -222,7 +223,7 @@ pub unsafe fn open(owner: HWND, placeholder: &str, center_x: i32, bottom: i32, w
         dpi,
         font,
         icons: theme::icon_font(s(16)),
-        brush: CreateSolidBrush(theme::colorref(theme::CARD)),
+        brush: CreateSolidBrush(theme::colorref(theme::card())),
         hover: false,
     });
     SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(input) as isize);
@@ -270,24 +271,24 @@ unsafe fn paint(window: HWND) {
     let mut client: RECT = zeroed();
     GetClientRect(window, &mut client);
     let mut c = Canvas::new(client.right.max(1), client.bottom.max(1));
-    c.fill(0, 0, c.width, c.height, argb(theme::CARD));
+    c.fill(0, 0, c.width, c.height, argb(theme::card()));
     let center = DT_CENTER | DT_VCENTER | DT_SINGLELINE;
 
     // Ícone de conversa num círculo suave.
     let bubble = input.s(30);
     let (bx, by) = (input.s(12), (client.bottom - bubble) / 2);
-    c.round_rect(bx, by, bubble, bubble, bubble / 2, argb(theme::ACCENT_SOFT));
+    c.round_rect(bx, by, bubble, bubble, bubble / 2, argb(theme::accent_soft()));
     let icon_rect = RECT { left: bx, top: by, right: bx + bubble, bottom: by + bubble };
-    c.text(input.icons, &icon::CHAT.to_string(), icon_rect, theme::ACCENT, center);
+    c.text(input.icons, &icon::CHAT.to_string(), icon_rect, theme::accent(), center);
 
     // Botão de enviar: laranja quando há texto, apagado quando o campo está vazio.
     let send = input.send_rect(window);
     let size = send.right - send.left;
     let empty = GetWindowTextLengthW(input.edit) == 0;
     let (fill, ink) = match (empty, input.hover) {
-        (true, _) => (theme::SOFT, theme::DISABLED),
-        (false, true) => (theme::ACCENT_DARK, theme::CARD),
-        (false, false) => (theme::ACCENT, theme::CARD),
+        (true, _) => (theme::soft(), theme::disabled()),
+        (false, true) => (theme::accent_dark(), theme::on_accent()),
+        (false, false) => (theme::accent(), theme::on_accent()),
     };
     c.round_rect(send.left, send.top, size, size, size / 2, argb(fill));
     c.text(input.icons, &icon::SEND.to_string(), send, ink, center);
@@ -322,8 +323,8 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         // O campo com o fundo do cartão.
         WM_CTLCOLOREDIT => {
             let Some(input) = input_of(hwnd) else { return DefWindowProcW(hwnd, msg, wp, lp) };
-            SetBkColor(wp as HDC, theme::colorref(theme::CARD));
-            SetTextColor(wp as HDC, theme::colorref(theme::TEXT));
+            SetBkColor(wp as HDC, theme::colorref(theme::card()));
+            SetTextColor(wp as HDC, theme::colorref(theme::text()));
             input.brush as LRESULT
         }
         // Digitou ou apagou: o botão de enviar acende ou apaga.

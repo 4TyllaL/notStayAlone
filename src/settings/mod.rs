@@ -214,6 +214,8 @@ struct State {
     /// Itens da galeria (carregados na primeira vez que a página abre).
     gallery: Vec<gallery::Entry>,
     gallery_loaded: bool,
+    /// Estado dos interruptores (id do controle, ligado?).
+    toggles: Vec<(i32, bool)>,
 }
 
 /// Para Tab/Enter/Esc funcionarem como numa caixa de diálogo.
@@ -282,7 +284,8 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
     if hwnd.is_null() {
         return;
     }
-    win::caption_color(hwnd, theme::BG);
+    win::caption_color(hwnd, theme::bg());
+    win::dark_title(hwnd, theme::is_dark());
     let font = |size: i32, weight: u32| ui_font(scale(size, dpi), weight);
     let packs = pack::list();
     let preview = preview_of(packs.iter().find(|p| p.id == config.mascot));
@@ -296,7 +299,7 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
         small: font(12, FW_NORMAL),
         title: font(24, FW_SEMIBOLD),
         icons: theme::icon_font(scale(16, dpi)),
-        card_brush: CreateSolidBrush(theme::colorref(theme::CARD)),
+        card_brush: CreateSolidBrush(theme::colorref(theme::card())),
         dpi,
         page: page as usize,
         nav_hover: None,
@@ -313,6 +316,7 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
         plugin_toggle: None,
         gallery: Vec::new(),
         gallery_loaded: false,
+        toggles: TOGGLES.iter().map(|&id| (id, false)).collect(),
     });
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
     OPEN.with(|o| o.set(hwnd));
@@ -395,6 +399,7 @@ unsafe fn build(hwnd: HWND) {
             null(),
         );
         SendMessageW(control, WM_SETFONT, if id == IDC_SECTION { bold } else { font } as WPARAM, 1);
+        ui::theme_control(control, class);
         if let Some(p) = page {
             pages.push((p, control));
             // Combos informam a altura da lista aberta; na tela ocupam uma linha.
@@ -455,11 +460,11 @@ unsafe fn build(hwnd: HWND) {
     SendMessageW(birthday, EM_SETCUEBANNER, 1, w("dd/mm").as_ptr() as LPARAM);
     limit(birthday, 5);
     label!(0, "o mascote comemora com você", cx + 78, 368, 230);
-    let check = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
+    let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
     add(Some(0), "BUTTON", "Iniciar junto com o Windows", check, 0, (x0, 402, 400, 22), IDC_AUTOSTART);
     add(Some(0), "BUTTON", "Procurar versões novas (uma vez por dia, no GitHub)", check, 0, (x0, 430, 440, 22), IDC_UPDATES);
     add(Some(0), "BUTTON", "Ficar quieto em reuniões (Teams, Zoom, Webex...)", check, 0, (x0, 458, 440, 22), IDC_MEETINGS);
-    hint!(0, "Para as reuniões ele olha só o nome do programa aberto, nunca o que está na tela.", 484, 20);
+    hint!(0, "Ele olha só o nome do programa aberto, nunca o que está na tela.", 484, 20);
     section!(0, "Aparência", 532);
     label!(0, "Tema", x0, 562, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 560, cw, 200), IDC_THEME);
@@ -516,7 +521,7 @@ unsafe fn build(hwnd: HWND) {
     add(Some(2), "BUTTON", "Testar conversa", button, 0, (x0, 464, 140, 30), IDC_TEST);
     add(Some(2), "STATIC", "", 0, 0, (x0 + 150, 462, CONTENT - 2 * x0 - 150, 40), IDC_TEST_RESULT);
     section!(2, "Memória", 532);
-    let check = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
+    let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
     add(Some(2), "BUTTON", "Lembrar do que eu contar na conversa (fica só neste PC)", check, 0, (x0, 558, 460, 22), IDC_MEMORY);
     add(Some(2), "STATIC", "", 0, 0, (x0, 590, 200, 20), IDC_MEMORY_STATUS);
     add(Some(2), "BUTTON", "Ver e editar", button, 0, (x0 + 206, 584, 118, 30), IDC_MEMORY_OPEN);
@@ -610,7 +615,7 @@ unsafe fn build(hwnd: HWND) {
     add(Some(5), "BUTTON", "Instalar", button, 0, (x0, 460, 110, 30), IDC_GALLERY_INSTALL);
     add(Some(5), "BUTTON", "Atualizar lista", button, 0, (x0 + 118, 460, 140, 30), IDC_GALLERY_RELOAD);
     add(Some(5), "STATIC", "", 0, 0, (x0, 500, CONTENT - 2 * x0, 40), IDC_GALLERY_STATUS);
-    hint!(5, "Plugins instalados chegam desligados: ligue na página Plugins quando quiser.", 548, 20);
+    hint!(5, "Plugins instalados chegam desligados: ligue na página Plugins.", 548, 20);
 
     // --- Rodapé (fora dos cartões)
     add(None, "BUTTON", "Salvar", button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
@@ -740,8 +745,7 @@ unsafe fn populate(hwnd: HWND) {
     let speeds: Vec<String> = SPEEDS.iter().map(|s| s.to_string()).collect();
     fill_combo(hwnd, IDC_SPEED, &speeds, (st.draft.speed.clamp(1, 4) - 1) as usize);
     set_text(hwnd, IDC_AWAY, &st.draft.companion.away_minutes.to_string());
-    let checked = if config::autostart_enabled() { BST_CHECKED } else { BST_UNCHECKED };
-    SendMessageW(item(hwnd, IDC_AUTOSTART), BM_SETCHECK, checked as WPARAM, 0);
+    set_checked_box(hwnd, IDC_AUTOSTART, config::autostart_enabled());
     set_checked_box(hwnd, IDC_UPDATES, st.draft.updates);
     set_checked_box(hwnd, IDC_MEETINGS, st.draft.quiet_in_meetings);
     set_checked_box(hwnd, IDC_MEMORY, st.draft.memory);
@@ -913,7 +917,7 @@ unsafe fn show_key_status(hwnd: HWND) {
         ("Use só letras, números e _ no nome.".to_string(), false)
     } else {
         match secret::find(&name) {
-            Some(KeySource::Vault) => ("✓ Chave salva no Gerenciador de Credenciais.".to_string(), true),
+            Some(KeySource::Vault) => ("✓ Chave salva no Windows.".to_string(), true),
             Some(KeySource::Environment) => (format!("✓ Usando a variável de ambiente {name}."), false),
             None => ("Nenhuma chave salva ainda.".to_string(), false),
         }
@@ -1325,12 +1329,18 @@ unsafe fn on_memory_command(hwnd: HWND, id: i32) {
     }
 }
 
+/// Os interruptores (desenhados aqui; o estado fica em `State::toggles`).
+const TOGGLES: [i32; 4] = [IDC_AUTOSTART, IDC_UPDATES, IDC_MEETINGS, IDC_MEMORY];
+
 unsafe fn is_checked(hwnd: HWND, id: i32) -> bool {
-    SendMessageW(item(hwnd, id), BM_GETCHECK, 0, 0) == BST_CHECKED as isize
+    state(hwnd).and_then(|st| st.toggles.iter().find(|t| t.0 == id).map(|t| t.1)).unwrap_or(false)
 }
 
 unsafe fn set_checked_box(hwnd: HWND, id: i32, on: bool) {
-    SendMessageW(item(hwnd, id), BM_SETCHECK, if on { BST_CHECKED } else { BST_UNCHECKED } as WPARAM, 0);
+    if let Some(toggle) = state(hwnd).and_then(|st| st.toggles.iter_mut().find(|t| t.0 == id)) {
+        toggle.1 = on;
+    }
+    InvalidateRect(item(hwnd, id), null(), 0);
 }
 
 unsafe fn on_ok(hwnd: HWND) {
@@ -1393,42 +1403,42 @@ unsafe fn paint(hwnd: HWND) {
     // Tudo num bitmap e depois de uma vez na tela: sem piscar.
     let mut c = Canvas::new(client.right.max(1), client.bottom.max(1));
     let (width, height) = (c.width, c.height);
-    c.fill(0, 0, width, height, argb(theme::BG));
+    c.fill(0, 0, width, height, argb(theme::bg()));
 
     // Barra lateral: o mascote escolhido (muda ao vivo) e a navegação.
     let side = s(SIDEBAR);
-    c.fill(0, 0, side, height, argb(theme::SIDEBAR));
-    c.fill(side - 1, 0, 1, height, argb(theme::BORDER));
+    c.fill(0, 0, side, height, argb(theme::sidebar()));
+    c.fill(side - 1, 0, 1, height, argb(theme::border()));
     let box_size = s(84);
     let bx = (side - box_size) / 2;
-    c.card((bx, s(24), box_size, box_size), s(20), argb(theme::CARD), argb(theme::BORDER));
+    c.card((bx, s(24), box_size, box_size), s(20), argb(theme::card()), argb(theme::border()));
     c.sprite_fit(bx + (box_size - s(64)) / 2, s(24) + (box_size - s(64)) / 2, s(64), &st.preview.1);
-    c.text(st.bold, &st.preview.0, RECT { left: 0, top: s(116), right: side, bottom: s(140) }, theme::TEXT, center);
-    c.text(st.small, "Configurações", RECT { left: 0, top: s(138), right: side, bottom: s(156) }, theme::MUTED, center);
+    c.text(st.bold, &st.preview.0, RECT { left: 0, top: s(116), right: side, bottom: s(140) }, theme::text(), center);
+    c.text(st.small, "Configurações", RECT { left: 0, top: s(138), right: side, bottom: s(156) }, theme::muted(), center);
     for (i, &(_, glyph, label)) in PAGES.iter().enumerate() {
         let r = nav_rect(i, st.dpi);
         let (x, y, w, h) = (r.left, r.top, r.right - r.left, r.bottom - r.top);
         let selected = i == st.page;
         if selected {
-            c.card((x, y, w, h), s(8), argb(theme::CARD), argb(theme::BORDER));
-            c.round_rect(x + s(6), y + s(11), s(3), h - s(22), s(2), argb(theme::ACCENT));
+            c.card((x, y, w, h), s(8), argb(theme::card()), argb(theme::border()));
+            c.round_rect(x + s(6), y + s(11), s(3), h - s(22), s(2), argb(theme::accent()));
         } else if st.nav_hover == Some(i) {
-            c.round_rect(x, y, w, h, s(8), argb(theme::HOVER));
+            c.round_rect(x, y, w, h, s(8), argb(theme::hover()));
         }
-        let (ink, font) = if selected { (theme::ACCENT, st.bold) } else { (theme::MUTED, st.font) };
+        let (ink, font) = if selected { (theme::accent(), st.bold) } else { (theme::muted(), st.font) };
         c.text(st.icons, &glyph.to_string(), RECT { left: x + s(14), top: y, right: x + s(38), bottom: y + h }, ink, center);
-        let text_ink = if selected { theme::TEXT } else { theme::MUTED };
+        let text_ink = if selected { theme::text() } else { theme::muted() };
         c.text(font, label, RECT { left: x + s(46), top: y, right: x + w - s(6), bottom: y + h }, text_ink, left);
     }
     let version = format!("!StayAlone v{}", crate::update::current());
-    c.text(st.small, &version, RECT { left: 0, top: height - s(34), right: side, bottom: height - s(12) }, theme::DISABLED, center);
+    c.text(st.small, &version, RECT { left: 0, top: height - s(34), right: side, bottom: height - s(12) }, theme::disabled(), center);
 
     // Título da página e os cartões atrás dos controles.
     let title = RECT { left: side + s(CARD_X), top: s(14), right: width - s(20), bottom: s(50) };
-    c.text(st.title, PAGES[st.page].2, title, theme::TEXT, left);
+    c.text(st.title, PAGES[st.page].2, title, theme::text(), left);
     for (_, r) in st.cards.iter().filter(|(p, _)| *p == st.page) {
         let (x, y) = (side + s(r.left), s(r.top - SHIFT));
-        c.card((x, y, s(r.right - r.left), s(r.bottom - r.top)), s(12), argb(theme::CARD), argb(theme::BORDER));
+        c.card((x, y, s(r.right - r.left), s(r.bottom - r.top)), s(12), argb(theme::card()), argb(theme::border()));
     }
     c.blit(dc, 0, 0);
     EndPaint(hwnd, &ps);
@@ -1441,12 +1451,16 @@ unsafe fn draw_button(hwnd: HWND, di: &DRAWITEMSTRUCT) {
     let style = ui::ButtonStyle {
         primary: matches!(id, IDOK | IDC_SAVE_MASCOT | IDC_AI_GO | IDC_ADD | IDC_TEST | IDC_PLUGIN_TEST),
         // Os cantos mostram o fundo de onde o botão está: cartão ou rodapé.
-        background: if matches!(id, IDOK | IDCANCEL) { theme::BG } else { theme::CARD },
+        background: if matches!(id, IDOK | IDCANCEL) { theme::bg() } else { theme::card() },
         font: st.font,
         bold: st.bold,
         dpi: st.dpi,
     };
-    ui::draw_button(di, &style);
+    if TOGGLES.contains(&id) {
+        ui::draw_toggle(di, is_checked(hwnd, id), &style);
+    } else {
+        ui::draw_button(di, &style);
+    }
 }
 
 /// Mascote mostrado na barra lateral: (nome, sprite parado).
@@ -1529,6 +1543,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 IDC_TEMPLATE | IDC_POSE | IDC_CLEAR | IDC_MIRROR | IDC_SAVE_MASCOT | IDC_AI_GO => on_maker_command(hwnd, id, code),
                 IDC_PLUGIN_TEST | IDC_PLUGIN_FOLDER | IDC_PLUGIN_RELOAD => on_plugin_command(hwnd, id),
                 IDC_GALLERY_INSTALL | IDC_GALLERY_RELOAD => on_gallery_command(hwnd, id),
+                id if TOGGLES.contains(&id) && code == BN_CLICKED => set_checked_box(hwnd, id, !is_checked(hwnd, id)),
                 _ => {}
             }
             0
@@ -1562,11 +1577,19 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let dc = wp as HDC;
             SetBkMode(dc, TRANSPARENT as _);
             let ink = match GetDlgCtrlID(lp as HWND) {
-                IDC_SECTION => theme::ACCENT,
-                IDC_HINT => theme::MUTED,
-                _ => theme::TEXT,
+                IDC_SECTION => theme::accent(),
+                IDC_HINT => theme::muted(),
+                _ => theme::text(),
             };
             SetTextColor(dc, theme::colorref(ink));
+            st.card_brush as LRESULT
+        }
+        // Campos de texto e a lista aberta dos seletores com as cores do tema.
+        WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+            let Some(st) = state(hwnd) else { return DefWindowProcW(hwnd, msg, wp, lp) };
+            let dc = wp as HDC;
+            SetTextColor(dc, theme::colorref(theme::text()));
+            SetBkColor(dc, theme::colorref(theme::card()));
             st.card_brush as LRESULT
         }
         WM_DESTROY => {

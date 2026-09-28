@@ -1,28 +1,100 @@
 //! Cores, fontes e ícones da interface (Configurações e painel da bandeja).
 //! Um só lugar para o visual: tons creme e laranja, combinando com os sprites.
 
-use std::ptr::null_mut;
+use std::{
+    ptr::null_mut,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-use windows_sys::Win32::Graphics::Gdi::*;
+use windows_sys::Win32::{
+    Foundation::ERROR_SUCCESS,
+    Graphics::Gdi::*,
+    System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD},
+};
 
-use crate::win::{ui_font, w};
+use crate::{
+    config::Theme,
+    win::{ui_font, w},
+};
 
-/// 0xRRGGBB — convertidas com `colorref` para o GDI ou `argb` para os canvas.
-pub const BG: u32 = 0xF6F2EC;
-pub const SIDEBAR: u32 = 0xFBEEDF;
-pub const CARD: u32 = 0xFFFFFF;
-pub const BORDER: u32 = 0xE7DED3;
-pub const TEXT: u32 = 0x2B1E2F;
-pub const MUTED: u32 = 0x6F6874;
-pub const ACCENT: u32 = 0xD96C1F;
-pub const ACCENT_DARK: u32 = 0xB85714;
-pub const ACCENT_SOFT: u32 = 0xFCE7D5;
-/// Fundo de botões/blocos neutros e realce ao passar o mouse.
-pub const SOFT: u32 = 0xF3EEE7;
-pub const HOVER: u32 = 0xEAE3DA;
-pub const HEART: u32 = 0xEF476F;
-pub const DANGER: u32 = 0xC0392B;
-pub const DISABLED: u32 = 0xB9B2AA;
+/// Tema escuro ligado (vale para todas as janelas desenhadas pelo app).
+static DARK: AtomicBool = AtomicBool::new(false);
+
+pub fn set_dark(dark: bool) {
+    DARK.store(dark, Ordering::Relaxed);
+}
+
+pub fn is_dark() -> bool {
+    DARK.load(Ordering::Relaxed)
+}
+
+/// Escuro? `Auto` segue o Windows ("Modo dos aplicativos" nas Configurações).
+pub fn resolve(theme: Theme) -> bool {
+    match theme {
+        Theme::Light => false,
+        Theme::Dark => true,
+        Theme::Auto => windows_apps_dark(),
+    }
+}
+
+fn windows_apps_dark() -> bool {
+    let mut value = 1u32;
+    let mut size = 4u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize").as_ptr(),
+            w("AppsUseLightTheme").as_ptr(),
+            RRF_RT_REG_DWORD,
+            null_mut(),
+            (&mut value as *mut u32).cast(),
+            &mut size,
+        )
+    };
+    status == ERROR_SUCCESS && value == 0
+}
+
+/// Cada cor em 0xRRGGBB (claro, escuro) — convertida com `colorref` para o GDI
+/// ou `argb` para os canvas. Os tons escuros mantêm o calor do creme e do laranja.
+macro_rules! colors {
+    ($($(#[$doc:meta])* $name:ident: $light:expr, $dark:expr;)*) => {
+        $(
+            $(#[$doc])*
+            pub fn $name() -> u32 {
+                if is_dark() { $dark } else { $light }
+            }
+        )*
+    };
+}
+
+colors! {
+    bg: 0xF6F2EC, 0x1E1B1F;
+    sidebar: 0xFBEEDF, 0x262126;
+    card: 0xFFFFFF, 0x2A262B;
+    border: 0xE7DED3, 0x3E383E;
+    text: 0x2B1E2F, 0xF3ECE6;
+    muted: 0x6F6874, 0xA89FA9;
+    accent: 0xD96C1F, 0xE8823A;
+    accent_dark: 0xB85714, 0xC96A26;
+    accent_soft: 0xFCE7D5, 0x4A3326;
+    /// Fundo de botões/blocos neutros.
+    soft: 0xF3EEE7, 0x353036;
+    /// Realce ao passar o mouse.
+    hover: 0xEAE3DA, 0x423B43;
+    heart: 0xEF476F, 0xFF5C84;
+    danger: 0xC0392B, 0xFF6B5B;
+    disabled: 0xB9B2AA, 0x6E666F;
+    /// Fundo do botão "Sair" com o mouse em cima.
+    danger_soft: 0xFBE3E0, 0x4A2A2A;
+    /// Trilho do interruptor desligado.
+    switch_off: 0xC9C1B8, 0x5A525B;
+    /// Anel de foco dentro dos botões laranja.
+    focus_ring: 0xF7C9A3, 0xF7C9A3;
+    /// Texto e ícones sobre o laranja.
+    on_accent: 0xFFFFFF, 0xFFFFFF;
+    /// Bolinha dos interruptores.
+    knob: 0xFFFFFF, 0xF3ECE6;
+}
 
 /// 0xRRGGBB → COLORREF do GDI (0x00BBGGRR).
 pub const fn colorref(c: u32) -> u32 {

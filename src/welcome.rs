@@ -13,7 +13,7 @@ use windows_sys::Win32::{
     Graphics::Gdi::*,
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Controls::{BST_CHECKED, DRAWITEMSTRUCT, EM_LIMITTEXT, EM_SETCUEBANNER},
+        Controls::{DRAWITEMSTRUCT, EM_LIMITTEXT, EM_SETCUEBANNER},
         HiDpi::{AdjustWindowRectExForDpi, GetDpiForSystem},
         Input::KeyboardAndMouse::SetFocus,
         Shell::ShellExecuteW,
@@ -90,6 +90,8 @@ struct State {
     /// (passo, controle): só os do passo atual aparecem.
     pages: Vec<(usize, HWND)>,
     done: bool,
+    /// Interruptores do segundo passo (id, ligado?).
+    toggles: Vec<(i32, bool)>,
 }
 
 thread_local! {
@@ -141,7 +143,8 @@ pub unsafe fn open(owner: HWND, current: &str, icon: HICON) {
     if hwnd.is_null() {
         return;
     }
-    win::caption_color(hwnd, theme::BG);
+    win::caption_color(hwnd, theme::bg());
+    win::dark_title(hwnd, theme::is_dark());
 
     let packs: Vec<(PackInfo, Vec<u32>)> = pack::list()
         .into_iter()
@@ -161,9 +164,10 @@ pub unsafe fn open(owner: HWND, current: &str, icon: HICON) {
         font: ui_font(scale(15, dpi), FW_NORMAL),
         bold: ui_font(scale(15, dpi), FW_SEMIBOLD),
         title: ui_font(scale(24, dpi), FW_SEMIBOLD),
-        brush: CreateSolidBrush(theme::colorref(theme::CARD)),
+        brush: CreateSolidBrush(theme::colorref(theme::card())),
         pages: Vec::new(),
         done: false,
+        toggles: vec![(IDC_WATER, true), (IDC_STRETCH, true), (IDC_EYES, false), (IDC_AUTOSTART, false)],
     });
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(st) as isize);
     OPEN.with(|o| o.set(hwnd));
@@ -197,22 +201,19 @@ unsafe fn build(hwnd: HWND) {
             null(),
         );
         SendMessageW(control, WM_SETFONT, font as WPARAM, 1);
+        ui::theme_control(control, class);
         if let Some(p) = step {
             pages.push((p, control));
         }
         control
     };
-    let check = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
+    // Interruptores e botões são desenhados aqui (`WM_DRAWITEM`).
     let button = BS_OWNERDRAW as u32 | WS_TABSTOP;
-
-    for (i, (label, on)) in [("Lembrar de beber água (a cada 45 min)", true), ("Lembrar de alongar (a cada 60 min)", true), ("Lembrar de descansar os olhos (a cada 20 min)", false)]
-        .into_iter()
-        .enumerate()
-    {
-        let control = add(Some(1), "BUTTON", label, check, (44, 160 + i as i32 * 32, 440, 24), IDC_WATER + i as i32);
-        SendMessageW(control, BM_SETCHECK, on as WPARAM, 0);
+    let labels = ["Lembrar de beber água (a cada 45 min)", "Lembrar de alongar (a cada 60 min)", "Lembrar de descansar os olhos (a cada 20 min)"];
+    for (i, label) in labels.into_iter().enumerate() {
+        add(Some(1), "BUTTON", label, button, (44, 160 + i as i32 * 32, 440, 24), IDC_WATER + i as i32);
     }
-    add(Some(1), "BUTTON", "Abrir junto com o Windows", check, (44, 270, 440, 24), IDC_AUTOSTART);
+    add(Some(1), "BUTTON", "Abrir junto com o Windows", button, (44, 270, 440, 24), IDC_AUTOSTART);
 
     add(Some(2), "BUTTON", "Criar uma chave grátis", button, (44, 176, 200, 32), IDC_GETKEY);
     let key = add(Some(2), "EDIT", "", ES_AUTOHSCROLL as u32 | ES_PASSWORD as u32 | WS_TABSTOP, (44, 250, 330, 26), IDC_KEY);
@@ -251,13 +252,13 @@ unsafe fn paint(hwnd: HWND) {
     let s = |v: i32| scale(v, st.dpi);
     let mut c = Canvas::new(client.right.max(1), client.bottom.max(1));
     let (width, height) = (c.width, c.height);
-    c.fill(0, 0, width, height, argb(theme::BG));
-    c.card((s(16), s(16), width - s(32), height - s(96)), s(14), argb(theme::CARD), argb(theme::BORDER));
+    c.fill(0, 0, width, height, argb(theme::bg()));
+    c.card((s(16), s(16), width - s(32), height - s(96)), s(14), argb(theme::card()), argb(theme::border()));
 
     let (title, text) = TEXTS[st.step];
     let left = DT_LEFT | DT_TOP | DT_WORDBREAK;
-    c.text(st.title, title, RECT { left: s(44), top: s(36), right: width - s(44), bottom: s(72) }, theme::TEXT, left);
-    c.text(st.font, text, RECT { left: s(44), top: s(80), right: width - s(44), bottom: s(140) }, theme::MUTED, left);
+    c.text(st.title, title, RECT { left: s(44), top: s(36), right: width - s(44), bottom: s(72) }, theme::text(), left);
+    c.text(st.font, text, RECT { left: s(44), top: s(80), right: width - s(44), bottom: s(140) }, theme::muted(), left);
 
     match st.step {
         0 => {
@@ -266,31 +267,31 @@ unsafe fn paint(hwnd: HWND) {
                 let r = tile_rect(i, st.packs.len(), st.dpi);
                 let size = r.right - r.left;
                 if i == st.chosen {
-                    c.round_rect(r.left, r.top, size, size, s(16), argb(theme::ACCENT));
-                    c.round_rect(r.left + s(3), r.top + s(3), size - s(6), size - s(6), s(13), argb(theme::ACCENT_SOFT));
+                    c.round_rect(r.left, r.top, size, size, s(16), argb(theme::accent()));
+                    c.round_rect(r.left + s(3), r.top + s(3), size - s(6), size - s(6), s(13), argb(theme::accent_soft()));
                 } else {
-                    c.round_rect(r.left, r.top, size, size, s(16), argb(theme::SOFT));
+                    c.round_rect(r.left, r.top, size, size, s(16), argb(theme::soft()));
                 }
                 c.sprite_fit(r.left + (size - s(64)) / 2, r.top + (size - s(64)) / 2, s(64), pixels);
                 let name_rect = RECT { left: r.left - s(10), top: r.bottom + s(8), right: r.right + s(10), bottom: r.bottom + s(30) };
                 let font = if i == st.chosen { st.bold } else { st.font };
-                c.text(font, &info.name, name_rect, if i == st.chosen { theme::ACCENT } else { theme::TEXT }, center);
+                c.text(font, &info.name, name_rect, if i == st.chosen { theme::accent() } else { theme::text() }, center);
             }
             let hint = RECT { left: s(44), top: s(300), right: width - s(44), bottom: s(340) };
-            c.text(st.font, "Dá para trocar depois pelo painel (botão direito no mascote).", hint, theme::MUTED, DT_CENTER | DT_TOP | DT_WORDBREAK);
+            c.text(st.font, "Dá para trocar depois pelo painel (botão direito no mascote).", hint, theme::muted(), DT_CENTER | DT_TOP | DT_WORDBREAK);
         }
         1 => {
             let tip = RECT { left: s(56), top: s(316), right: width - s(56), bottom: s(370) };
-            c.round_rect(tip.left - s(12), tip.top - s(10), tip.right - tip.left + s(24), tip.bottom - tip.top + s(12), s(10), argb(theme::ACCENT_SOFT));
+            c.round_rect(tip.left - s(12), tip.top - s(10), tip.right - tip.left + s(24), tip.bottom - tip.top + s(12), s(10), argb(theme::accent_soft()));
             let text = "Dica: clique no mascote para fazer carinho, arraste para carregar e use o botão direito para abrir o painel.";
-            c.text(st.font, text, tip, theme::TEXT, left);
+            c.text(st.font, text, tip, theme::text(), left);
         }
         _ => {
             let label = RECT { left: s(44), top: s(226), right: width - s(60), bottom: s(248) };
-            c.text(st.bold, "Cole a chave aqui", label, theme::TEXT, left);
+            c.text(st.bold, "Cole a chave aqui", label, theme::text(), left);
             let hint = RECT { left: s(44), top: s(290), right: width - s(44), bottom: s(360) };
             let text = "Ela fica no Gerenciador de Credenciais do Windows, nunca em arquivo. Pode pular: dá para fazer isso depois em Configurações → Conversa.";
-            c.text(st.font, text, hint, theme::MUTED, left);
+            c.text(st.font, text, hint, theme::muted(), left);
         }
     }
 
@@ -299,7 +300,7 @@ unsafe fn paint(hwnd: HWND) {
         let size = if i == st.step { s(10) } else { s(8) };
         let x = width / 2 + (i as i32 - 1) * s(22) - size / 2;
         let y = height - s(41) - size / 2;
-        c.round_rect(x, y, size, size, size / 2, argb(if i == st.step { theme::ACCENT } else { theme::BORDER }));
+        c.round_rect(x, y, size, size, size / 2, argb(if i == st.step { theme::accent() } else { theme::border() }));
     }
     c.blit(dc, 0, 0);
     EndPaint(hwnd, &ps);
@@ -319,7 +320,7 @@ unsafe fn finish(hwnd: HWND) -> bool {
             return false;
         }
     }
-    let checked = |id: i32| SendMessageW(GetDlgItem(hwnd, id), BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
+    let checked = |id: i32| st.toggles.iter().any(|&(t, on)| t == id && on);
     let choices = Choices {
         mascot: st.packs.get(st.chosen).map_or_else(|| pack::DEFAULT.to_string(), |(p, _)| p.id.clone()),
         reminders: [checked(IDC_WATER), checked(IDC_STRETCH), checked(IDC_EYES)],
@@ -356,20 +357,30 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let Some(st) = state(hwnd) else { return 0 };
             let di = &*(lp as *const DRAWITEMSTRUCT);
             let id = di.CtlID as i32;
+            let toggle = st.toggles.iter().find(|t| t.0 == id).map(|t| t.1);
             let style = ui::ButtonStyle {
                 primary: id == IDC_NEXT,
-                background: if id == IDC_GETKEY { theme::CARD } else { theme::BG },
+                background: if id == IDC_GETKEY || toggle.is_some() { theme::card() } else { theme::bg() },
                 font: st.font,
                 bold: st.bold,
                 dpi: st.dpi,
             };
-            ui::draw_button(di, &style);
+            match toggle {
+                Some(on) => ui::draw_toggle(di, on, &style),
+                None => ui::draw_button(di, &style),
+            }
             1
+        }
+        WM_CTLCOLOREDIT => {
+            let Some(st) = state(hwnd) else { return DefWindowProcW(hwnd, msg, wp, lp) };
+            SetTextColor(wp as HDC, theme::colorref(theme::text()));
+            SetBkColor(wp as HDC, theme::colorref(theme::card()));
+            st.brush as LRESULT
         }
         WM_CTLCOLORSTATIC => {
             let Some(st) = state(hwnd) else { return DefWindowProcW(hwnd, msg, wp, lp) };
             SetBkMode(wp as HDC, TRANSPARENT as _);
-            SetTextColor(wp as HDC, theme::colorref(theme::TEXT));
+            SetTextColor(wp as HDC, theme::colorref(theme::text()));
             st.brush as LRESULT
         }
         WM_COMMAND => {
@@ -386,7 +397,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 IDC_GETKEY => {
                     ShellExecuteW(hwnd, w("open").as_ptr(), w("https://aistudio.google.com/apikey").as_ptr(), null(), null(), SW_SHOWNORMAL);
                 }
-                _ => {}
+                id => {
+                    if let Some(toggle) = st.toggles.iter_mut().find(|t| t.0 == id) {
+                        toggle.1 = !toggle.1;
+                        InvalidateRect(GetDlgItem(hwnd, id), null(), 0);
+                    }
+                }
             }
             0
         }

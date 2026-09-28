@@ -50,19 +50,40 @@ pub fn text_of(control: HWND) -> String {
     }
 }
 
-/// Muda um atributo de janela do DWM (visual do Windows 11; antes disso não faz nada).
-/// A dwmapi.dll é carregada só de System32, como a winhttp.dll da conversa.
-unsafe fn dwm_set(hwnd: HWND, attribute: u32, value: u32) {
+/// Função de uma DLL do Windows carregada só de System32 (nunca da pasta do .exe,
+/// onde alguém poderia ter deixado uma DLL falsa).
+pub unsafe fn system_proc(dll: &str, name: &core::ffi::CStr) -> Option<unsafe extern "system" fn() -> isize> {
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
-    type SetAttribute = unsafe extern "system" fn(HWND, u32, *const core::ffi::c_void, u32) -> i32;
-    let lib = LoadLibraryExW(w("dwmapi.dll").as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32);
+    let lib = LoadLibraryExW(w(dll).as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32);
     if lib.is_null() {
-        return;
+        return None;
     }
-    if let Some(proc) = GetProcAddress(lib, c"DwmSetWindowAttribute".as_ptr().cast()) {
+    GetProcAddress(lib, name.as_ptr().cast())
+}
+
+/// Como `system_proc`, para funções exportadas só por número.
+pub unsafe fn system_proc_ordinal(dll: &str, ordinal: u16) -> Option<unsafe extern "system" fn() -> isize> {
+    use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
+    let lib = LoadLibraryExW(w(dll).as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if lib.is_null() {
+        return None;
+    }
+    GetProcAddress(lib, ordinal as usize as *const u8)
+}
+
+/// Muda um atributo de janela do DWM (visual do Windows 11; antes disso não faz nada).
+unsafe fn dwm_set(hwnd: HWND, attribute: u32, value: u32) {
+    type SetAttribute = unsafe extern "system" fn(HWND, u32, *const core::ffi::c_void, u32) -> i32;
+    if let Some(proc) = system_proc("dwmapi.dll", c"DwmSetWindowAttribute") {
         let set: SetAttribute = std::mem::transmute::<unsafe extern "system" fn() -> isize, SetAttribute>(proc);
         set(hwnd, attribute, (&value as *const u32).cast(), 4);
     }
+}
+
+/// Barra de título clara ou escura (junto com o tema do app).
+pub unsafe fn dark_title(hwnd: HWND, dark: bool) {
+    const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
+    dwm_set(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, dark as u32);
 }
 
 /// Pinta a barra de título com a cor da janela.
@@ -78,6 +99,15 @@ pub unsafe fn round_corners(hwnd: HWND, border_rgb: u32) {
     const DWMWCP_ROUND: u32 = 2;
     dwm_set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND);
     dwm_set(hwnd, DWMWA_BORDER_COLOR, crate::theme::colorref(border_rgb));
+}
+
+/// Uma string UTF-16 terminada em zero (vinda do Windows) é igual a `text`?
+pub unsafe fn wide_eq(ptr: *const u16, text: &str) -> bool {
+    let mut len = 0;
+    while len < 256 && *ptr.add(len) != 0 {
+        len += 1;
+    }
+    String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len)) == text
 }
 
 /// Tira caracteres de controle e limita o tamanho — para textos vindos de

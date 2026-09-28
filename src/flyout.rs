@@ -361,38 +361,38 @@ impl Flyout {
         match &item.part {
             Part::Panel => {
                 c.shadow((x, y + s(3), w, h), s(RADIUS), s(MARGIN) - s(2), 0.28);
-                c.card((x, y, w, h), s(RADIUS), argb(theme::CARD), argb(theme::BORDER));
+                c.card((x, y, w, h), s(RADIUS), argb(theme::card()), argb(theme::border()));
             }
             Part::Header => {
-                c.round_rect(x, y, s(48), s(48), s(10), argb(theme::ACCENT_SOFT));
+                c.round_rect(x, y, s(48), s(48), s(10), argb(theme::accent_soft()));
                 let off = (s(48) - s(32)) / 2;
                 c.sprite_fit(x + off, y + off, s(32), &self.model.pixels);
                 let tx = x + s(60);
-                c.text(title, &self.model.name, rect(tx, y + s(2), w - s(60), s(24)), theme::TEXT, left);
+                c.text(title, &self.model.name, rect(tx, y + s(2), w - s(60), s(24)), theme::text(), left);
                 // Um coração por vez: a fonte de ícones não tem o caractere de espaço.
                 for i in 0..5 {
                     let (glyph, ink) =
-                        if i < self.model.hearts { (icon::HEART_FULL, theme::HEART) } else { (icon::HEART_EMPTY, theme::DISABLED) };
+                        if i < self.model.hearts { (icon::HEART_FULL, theme::heart()) } else { (icon::HEART_EMPTY, theme::disabled()) };
                     let hx = tx + i as i32 * s(19);
                     c.text(icon_font, &glyph.to_string(), rect(hx, y + s(28), s(18), s(18)), ink, left);
                 }
             }
-            Part::Stats => c.text(small, &self.model.stats, r, theme::MUTED, left),
+            Part::Stats => c.text(small, &self.model.stats, r, theme::muted(), left),
             Part::Banner(text) => {
-                let fill = if hover { theme::ACCENT_DARK } else { theme::ACCENT };
+                let fill = if hover { theme::accent_dark() } else { theme::accent() };
                 c.round_rect(x, y, w, h, s(10), argb(fill));
-                c.text(icon_font, &icon::DOWNLOAD.to_string(), rect(x + s(8), y, s(24), h), theme::CARD, center);
-                c.text(body, text, rect(x + s(38), y, w - s(46), h), theme::CARD, left);
+                c.text(icon_font, &icon::DOWNLOAD.to_string(), rect(x + s(8), y, s(24), h), theme::on_accent(), center);
+                c.text(body, text, rect(x + s(38), y, w - s(46), h), theme::on_accent(), left);
             }
             Part::Tile { glyph, label, active } => {
                 let bg = match (active, hover) {
-                    (true, false) => theme::ACCENT,
-                    (true, true) => theme::ACCENT_DARK,
-                    (false, true) => theme::HOVER,
-                    (false, false) => theme::SOFT,
+                    (true, false) => theme::accent(),
+                    (true, true) => theme::accent_dark(),
+                    (false, true) => theme::hover(),
+                    (false, false) => theme::soft(),
                 };
                 c.round_rect(x, y, w, h, s(10), argb(bg));
-                let (ink, accent) = if *active { (theme::CARD, theme::CARD) } else { (theme::TEXT, theme::ACCENT) };
+                let (ink, accent) = if *active { (theme::on_accent(), theme::on_accent()) } else { (theme::text(), theme::accent()) };
                 c.text(icon_big, &glyph.to_string(), rect(x, y + s(8), w, s(26)), accent, center);
                 c.text(small, label, rect(x + s(2), y + s(38), w - s(4), s(18)), ink, center);
             }
@@ -400,14 +400,14 @@ impl Flyout {
                 // Passando o mouse num mascote, a legenda mostra o nome dele.
                 let name = self.hovered_mascot.and_then(|i| self.model.mascots.get(i)).filter(|_| *text == "Mascote");
                 let caption = name.map_or(text.to_string(), |m| format!("Mascote · {}", m.name));
-                c.text(small, &caption, r, theme::MUTED, left)
+                c.text(small, &caption, r, theme::muted(), left)
             }
             Part::Mascot(i) => {
                 let current = *i == self.model.current;
-                let bg = if hover { theme::HOVER } else { theme::SOFT };
+                let bg = if hover { theme::hover() } else { theme::soft() };
                 if current {
-                    c.round_rect(x, y, w, h, s(10), argb(theme::ACCENT));
-                    c.round_rect(x + s(2), y + s(2), w - s(4), h - s(4), s(8), argb(theme::ACCENT_SOFT));
+                    c.round_rect(x, y, w, h, s(10), argb(theme::accent()));
+                    c.round_rect(x + s(2), y + s(2), w - s(4), h - s(4), s(8), argb(theme::accent_soft()));
                 } else {
                     c.round_rect(x, y, w, h, s(10), argb(bg));
                 }
@@ -416,46 +416,46 @@ impl Flyout {
                 }
             }
             Part::Glyph(glyph) => {
-                c.round_rect(x, y, w, h, s(10), argb(if hover { theme::HOVER } else { theme::SOFT }));
-                c.text(icon_font, &glyph.to_string(), r, theme::MUTED, center);
+                c.round_rect(x, y, w, h, s(10), argb(if hover { theme::hover() } else { theme::soft() }));
+                c.text(icon_font, &glyph.to_string(), r, theme::muted(), center);
             }
-            Part::Track => c.round_rect(x, y, w, h, s(8), argb(theme::SOFT)),
+            Part::Track => c.round_rect(x, y, w, h, s(8), argb(theme::soft())),
             Part::Segment { label, selected } => {
                 if *selected {
-                    c.card((x, y, w, h), s(6), argb(theme::CARD), argb(theme::BORDER));
+                    c.card((x, y, w, h), s(6), argb(theme::card()), argb(theme::border()));
                 } else if hover {
-                    c.round_rect(x, y, w, h, s(6), argb(theme::HOVER));
+                    c.round_rect(x, y, w, h, s(6), argb(theme::hover()));
                 }
-                let ink = if *selected { theme::ACCENT } else { theme::MUTED };
+                let ink = if *selected { theme::accent() } else { theme::muted() };
                 c.text(if *selected { title } else { body }, label, r, ink, center);
             }
-            Part::Divider => c.fill(x, y, w, h.max(1), argb(theme::BORDER)),
+            Part::Divider => c.fill(x, y, w, h.max(1), argb(theme::border())),
             Part::Row { glyph, label, right, danger } => {
                 if hover {
-                    c.round_rect(x, y, w, h, s(8), argb(if *danger { 0xFBE3E0 } else { theme::SOFT }));
+                    c.round_rect(x, y, w, h, s(8), argb(if *danger { theme::danger_soft() } else { theme::soft() }));
                 }
-                let ink = if *danger { theme::DANGER } else { theme::TEXT };
-                let icon_ink = if *danger { theme::DANGER } else { theme::MUTED };
+                let ink = if *danger { theme::danger() } else { theme::text() };
+                let icon_ink = if *danger { theme::danger() } else { theme::muted() };
                 c.text(icon_font, &glyph.to_string(), rect(x + s(6), y, s(24), h), icon_ink, center);
                 c.text(body, label, rect(x + s(38), y, w - s(100), h), ink, left);
                 let right_edge = x + w - s(8);
                 match right {
                     Right::Nothing => {}
                     Right::Chevron => {
-                        c.text(icon_font, &icon::CHEVRON.to_string(), rect(right_edge - s(16), y, s(16), h), theme::MUTED, center)
+                        c.text(icon_font, &icon::CHEVRON.to_string(), rect(right_edge - s(16), y, s(16), h), theme::muted(), center)
                     }
                     Right::Note(note) => {
                         let flags = DT_RIGHT | DT_VCENTER | DT_SINGLELINE;
-                        c.text(small, note, rect(right_edge - s(120), y, s(100), h), theme::MUTED, flags);
-                        c.text(icon_font, &icon::CHEVRON.to_string(), rect(right_edge - s(16), y, s(16), h), theme::MUTED, center);
+                        c.text(small, note, rect(right_edge - s(120), y, s(100), h), theme::muted(), flags);
+                        c.text(icon_font, &icon::CHEVRON.to_string(), rect(right_edge - s(16), y, s(16), h), theme::muted(), center);
                     }
                     Right::Switch(on) => {
                         let (sw, sh) = (s(36), s(20));
                         let (sx, sy) = (right_edge - sw, y + (h - sh) / 2);
-                        c.round_rect(sx, sy, sw, sh, sh / 2, argb(if *on { theme::ACCENT } else { 0xC9C1B8 }));
+                        c.round_rect(sx, sy, sw, sh, sh / 2, argb(if *on { theme::accent() } else { theme::switch_off() }));
                         let knob = sh - s(6);
                         let kx = if *on { sx + sw - knob - s(3) } else { sx + s(3) };
-                        c.round_rect(kx, sy + s(3), knob, knob, knob / 2, argb(theme::CARD));
+                        c.round_rect(kx, sy + s(3), knob, knob, knob / 2, argb(theme::knob()));
                     }
                 }
             }

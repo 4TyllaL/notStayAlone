@@ -151,7 +151,7 @@ pub(super) unsafe extern "system" fn palette_proc(hwnd: HWND, msg: u32, wp: WPAR
             let dc = BeginPaint(hwnd, &mut ps);
             let mut client: RECT = zeroed();
             GetClientRect(hwnd, &mut client);
-            fill(dc, client, GetSysColor(COLOR_WINDOW));
+            fill(dc, client, colorref(crate::theme::card()));
             let one = scale(1, st.dpi).max(1);
             for slot in 0..slots {
                 let r = swatch_rect(slot, st.dpi);
