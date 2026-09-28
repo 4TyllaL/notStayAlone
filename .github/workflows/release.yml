@@ -1,25 +1,15 @@
 name: Release
 
 # Uma tag vX.Y.Z vira uma release: compila no GitHub (MSVC, com Control Flow Guard),
-# testa, confere as proteções, assina pela SignPath (quando configurada), gera a
-# atestação de origem e publica o .exe.
-#
-# Assinatura (SignPath Foundation): liga sozinha quando existem
-#   - a variável do repositório SIGNPATH_ORGANIZATION_ID e
-#   - o segredo SIGNPATH_API_TOKEN.
-# Sem elas, a release sai sem assinatura (como antes).
+# testa, confere as proteções, gera a atestação de origem e publica o .exe.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: write      # criar a release
-  actions: read        # a SignPath baixa o artefato deste workflow
   id-token: write      # atestação de origem (Sigstore)
   attestations: write
-
-env:
-  SIGN: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
 
 jobs:
   release:
@@ -40,7 +30,6 @@ jobs:
           if ($tag -ne $cargo) { throw "a tag v$tag não bate com o Cargo.toml ($cargo)" }
           if (-not (Test-Path "docs/releases/v$tag.md")) { throw "faltam as notas em docs/releases/v$tag.md" }
           "VERSION=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "EXE=target/release/dontStayAlone.exe" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Clippy
         run: cargo clippy --release --all-targets -- -D warnings
@@ -53,57 +42,19 @@ jobs:
 
       - name: Proteções do executável
         shell: pwsh
-        run: .github/scripts/check-exe.ps1 -Exe $env:EXE -Version $env:VERSION
-
-      # --- assinatura ------------------------------------------------------------
-
-      - name: Enviar para assinar
-        id: unsigned
-        if: env.SIGN == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned
-          path: target/release/dontStayAlone.exe
-          retention-days: 1
-
-      - name: Assinar (SignPath)
-        if: env.SIGN == 'true'
-        uses: signpath/github-action-submit-signing-request@v1
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: notStayAlone
-          signing-policy-slug: release-signing
-          artifact-configuration-slug: exe
-          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed
-
-      - name: Conferir a assinatura
-        if: env.SIGN == 'true'
-        shell: pwsh
-        run: |
-          $exe = "signed/dontStayAlone.exe"
-          $sig = Get-AuthenticodeSignature $exe
-          if ($sig.Status -ne 'Valid') { throw "assinatura inválida: $($sig.Status) $($sig.StatusMessage)" }
-          "Assinado por: $($sig.SignerCertificate.Subject)"
-          # A assinatura não pode ter mudado o programa: mesmas proteções e versão.
-          .github/scripts/check-exe.ps1 -Exe $exe -Version $env:VERSION
-          "EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append
-
-      # --- publicação ------------------------------------------------------------
+        run: .github/scripts/check-exe.ps1 -Exe target/release/dontStayAlone.exe -Version $env:VERSION
 
       - name: Atestação de origem
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: ${{ env.EXE }}
+          subject-path: target/release/dontStayAlone.exe
 
       - name: Publicar
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" $env:EXE `
+          gh release create "${{ github.ref_name }}" target/release/dontStayAlone.exe `
             --title "!StayAlone $env:VERSION" `
             --notes-file "docs/releases/v$env:VERSION.md" `
             --latest

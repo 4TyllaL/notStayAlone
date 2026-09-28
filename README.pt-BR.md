@@ -20,10 +20,9 @@ inclusa. Sem instalador; nada é gravado fora de `%APPDATA%\StayAlone`.
 
 > Por que *dont*StayAlone? O app se chama **!StayAlone**, mas o GitHub tira o `!` do nome dos arquivos.
 
-A assinatura digital pela SignPath Foundation está sendo configurada (veja a
-[política de assinatura](README.md#code-signing-policy)); até a primeira versão assinada, o
-SmartScreen pode avisar na primeira vez (*Mais informações → Executar assim mesmo*). O GitHub
-mostra o SHA-256 do arquivo ao lado do download.
+O executável ainda não tem assinatura digital, então o SmartScreen pode avisar na primeira vez
+(*Mais informações → Executar assim mesmo*). O GitHub mostra o SHA-256 do arquivo ao lado do
+download.
 
 Na primeira vez, uma janela de boas-vindas ajuda a escolher o mascote, os lembretes e
 (opcional) a chave da IA. Depois o app **se atualiza sozinho**: uma vez por dia olha a última

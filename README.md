@@ -28,11 +28,8 @@ included. No installer, nothing written outside `%APPDATA%\StayAlone`.
 
 > Why *dont*StayAlone? The app is **!StayAlone**, but GitHub strips the `!` from file names.
 
-Code signing through the SignPath Foundation is being set up (see
-[Code signing policy](#code-signing-policy)); until the first signed release, Windows
-SmartScreen may warn on first run (*More info → Run anyway*). GitHub shows the file's SHA-256
-next to the download, and every release built by GitHub Actions carries a
-[build provenance attestation](https://github.com/4TyllaL/notStayAlone/attestations).
+The binary is not code-signed yet, so Windows SmartScreen may warn on first run
+(*More info → Run anyway*). GitHub shows the file's SHA-256 next to the download.
 
 After that, the app **updates itself**: once a day it checks the latest GitHub release, and the
 panel offers the new version. The download is verified against the release's SHA-256 before it
@@ -152,22 +149,6 @@ gallery/        community mascots (index.json made by tools/gallery.py)
 build.rs        icon, manifest and version resources
 docs/           screenshots
 ```
-
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/).
-
-- Only `dontStayAlone.exe` built by the [Release workflow](.github/workflows/release.yml) from a
-  version tag of this repository is signed. Nothing built on a personal machine is signed.
-- Committers and reviewers: [@4TyllaL](https://github.com/4TyllaL)
-- Approvers: [@4TyllaL](https://github.com/4TyllaL) — every signing request is approved by hand.
-
-**Privacy:** this program does not send any information to other networked systems unless
-the user asks for it, with these exceptions, all described in [`SECURITY.md`](SECURITY.md):
-the daily update check against this repository's GitHub releases (can be turned off in
-Settings), the AI chat with the provider the user configures, and the community gallery
-when the user opens it. There is no telemetry.
 
 ## License
 
