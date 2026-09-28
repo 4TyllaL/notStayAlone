@@ -11,10 +11,13 @@ funcionais (SFRs). É uma análise inspirada no método, **não uma certificaç�
 |---|---|---|
 | `dontStayAlone.exe` | mascote, lembretes, configurações, criador de mascotes | não: o processo do mascote nunca usa a rede |
 | `dontStayAlone.exe --ia` | conversa com IA (API padrão OpenAI), num processo separado e de vida curta | sim, só quando você conversa |
+| `--procurar-versao` / `--baixar-versao` | procura e baixa a versão nova (releases do GitHub) | sim, uma vez por dia (se ligado) |
+| `--galeria` / `--instalar-galeria` | lista e instala itens da galeria da comunidade | sim, só quando você abre a Galeria |
 | Plugins de terceiros | programas que você liga na aba Plugins | o que o plugin fizer (fora do TOE) |
 
 Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
-`mascots\`) e a chave da API no Gerenciador de Credenciais do Windows.
+`memoria.txt`, `mascots\`, `plugins\`, `update\`) e a chave da API no Gerenciador de
+Credenciais do Windows.
 
 ## Hipóteses sobre o ambiente
 
@@ -37,6 +40,9 @@ Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
 | T.RECURSOS | Algo faz o app consumir CPU/memória/objetos GDI sem limite. |
 | T.PRIVACIDADE | O app registra o que você digita ou envia dados sem você pedir. |
 | T.PLUGIN | Um plugin é ligado sem você saber, ou o arquivo dele é trocado depois de aprovado. |
+| T.ATUALIZACAO | Um `.exe` falso ou antigo chega pela atualização automática (servidor ou rede comprometidos). |
+| T.GALERIA | Um item da galeria vem adulterado ou tenta gravar fora da pasta dele. |
+| T.MEMORIA | A memória da conversa guarda dados sensíveis. |
 
 ## Requisitos funcionais e como são atendidos
 
@@ -49,15 +55,22 @@ Dados guardados: `%APPDATA%\StayAlone\` (`config.ini`, `state.ini`, `chat.ini`,
 | **FPT_TST / FPT_FLS** — falha segura | T.SERVIDOR | Resposta HTTP até 64 KB (uma conversa tem 1–3 KB); pedido até 64 KB; JSON com até 64 níveis (não estoura a pilha); `max_tokens` com teto de 4096; saída de qualquer plugin até 16 KB e processo encerrado após 120 s. |
 | **FPT (proteção do TSF)** | T.DLL | `winhttp.dll` carregada só de System32 (`LOAD_LIBRARY_SEARCH_SYSTEM32`); as demais DLLs importadas são "KnownDLLs". Binários com ASLR (alta entropia) e DEP; manifesto `asInvoker`. Plugin personalizado só `.exe` com caminho absoluto (nada de `.bat`/PATH). |
 | **FDP_ACF.1 / FPT_TST.1** — controle de acesso e integridade dos plugins | T.PLUGIN | Plugin novo chega desligado; ligar exige sua confirmação (padrão "Não") e grava o SHA-256 do programa. Antes de **cada** execução o hash é conferido; se mudou, não roda e o mascote avisa. No `config.ini`, plugin de terceiros sem hash válido é ignorado. O programa precisa ser `.exe`/`.ps1` **dentro** da pasta do plugin (sem caminhos nem `..`); o PowerShell usado é o de System32. |
+| **FPT_TUD_EXT / FCS_COP** — atualização confiável | T.ATUALIZACAO | Só de `https://github.com/4TyllaL/notStayAlone/releases/download/` (endereço conferido duas vezes, no app e no processo que baixa); o SHA-256 vem do campo `digest` da API do GitHub e o arquivo baixado precisa bater, começar com `MZ` e ter até 16 MB; nunca volta para versão mais antiga nem aceita pré-release. O `.exe` antigo é renomeado (`.old.exe`) antes da troca e apagado na próxima abertura. |
+| **FDP_ITC.2** — importação da galeria | T.GALERIA | Só de `raw.githubusercontent.com/4TyllaL/notStayAlone/main/gallery/`; cada arquivo tem SHA-256 no `index.json` e todos são conferidos **antes** de gravar qualquer um; ids `[a-z0-9_-]` e nomes de arquivo sem pastas nem `..`; plugins instalados chegam desligados (valem as regras de T.PLUGIN). |
+| **FPR_ANO / FDP_RIP** — minimização na memória | T.MEMORIA | Desligável; só fatos curtos marcados pela IA, no máximo 30, num arquivo de texto local que você vê, edita e apaga pelas Configurações. Fatos com senha, documento, cartão, conta, e-mail ou números longos são descartados antes de gravar. |
 | **FRU_RSA.1** — cotas de recursos | T.RECURSOS | Timers ligados só quando necessários; janelas, fontes e bitmaps criados sob demanda e liberados (sem vazamento GDI/USER medido); até 50 lembretes seus; histórico da conversa com 12 mensagens. |
-| **FPR_UNO / FDP_IFC.1** — privacidade e fluxo | T.PRIVACIDADE | Sem hooks de teclado/mouse; só `GetLastInputInfo` (quando, nunca o quê). Nada sai do PC sem você configurar a conversa; o app não tem telemetria nem logs. |
+| **FPR_UNO / FDP_IFC.1** — privacidade e fluxo | T.PRIVACIDADE | Sem hooks de teclado/mouse; só `GetLastInputInfo` (quando, nunca o quê). "Quieto em reuniões" lê só o nome do `.exe` da janela da frente, nunca o conteúdo. Fora a conversa (se você configurar), a procura de versão (desligável) e a Galeria (quando aberta), nada sai do PC; sem telemetria nem logs. |
 
 ## Riscos residuais (o que ainda não está coberto)
 
 - **Sem assinatura digital (Authenticode).** Para distribuir, assine o `.exe`: o
   Windows SmartScreen confia mais e dá para detectar adulteração.
-- **Sem Control Flow Guard.** A toolchain GNU não gera CFG; compilar com MSVC
-  (`-C control-flow-guard`) adiciona essa proteção.
+- **Control Flow Guard só no build MSVC.** A toolchain GNU não gera CFG. O build MSVC
+  (`.cargo/config.toml` e o workflow de release) liga CFG, CRT estático, `/CETCOMPAT` e
+  `/DEPENDENTLOADFLAG` (conferido por `.github/scripts/check-exe.ps1`). Um `.exe` compilado
+  com GNU não tem essas proteções extras.
+- **Atualização depende do GitHub.** Quem controlar a conta do repositório pode publicar
+  uma release com hash válido; a assinatura Authenticode resolveria isso.
 - **Plugins sem sandbox.** Um plugin ligado roda com as permissões do usuário: a
   aprovação garante que é *o arquivo que você aprovou*, não que ele seja bom. Ligue só
   plugins de quem você confia. Scripts `.ps1` rodam com `-ExecutionPolicy Bypass`
@@ -75,7 +88,7 @@ cargo test
 
 Os testes cobrem, entre outros: mensagens forjadas (`mailbox`), endereços HTTP proibidos,
 nomes/chaves inválidos, arquivos grandes demais, JSON profundo, limite de tokens e
-limpeza de textos. Também: impressão digital de plugins, programas fora da pasta do plugin e SHA-256 (vetores oficiais). `cargo test -- --ignored` testa o Gerenciador de Credenciais de verdade.
+limpeza de textos. Também: impressão digital de plugins, programas fora da pasta do plugin e SHA-256 (vetores oficiais), endereços de atualização e da galeria recusados, caminhos da galeria com `..`, filtro de dados sensíveis da memória e tradução completa da interface. `cargo test -- --ignored` testa o Gerenciador de Credenciais de verdade.
 
 ## Reportar um problema
 

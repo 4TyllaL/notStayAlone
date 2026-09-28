@@ -3,11 +3,12 @@
 > [English](README.md) · **Português**
 
 Um mascote em pixel art que faz companhia na área de trabalho — feito para ser
-**o mais leve possível**.
+**o mais leve possível**. A interface está em **português** e **inglês** (segue o Windows, ou
+escolha em Configurações).
 
 | Métrica | Meta | Medido |
 |---|---|---|
-| Executável | < 5 MB | ~650 KB — um único `.exe`, conversa com IA inclusa |
+| Executável | < 5 MB | ~750 KB — um único `.exe`, conversa com IA inclusa |
 | Memória privada | < 20 MB | ~2,3 MB |
 | CPU | ~0% | ~0,03% da máquina (0,05–0,4% de um núcleo: parado → andando) |
 
@@ -23,21 +24,36 @@ O executável ainda não tem assinatura digital, então o SmartScreen pode avisa
 (*Mais informações → Executar assim mesmo*). O GitHub mostra o SHA-256 do arquivo ao lado do
 download.
 
+Na primeira vez, uma janela de boas-vindas ajuda a escolher o mascote, os lembretes e
+(opcional) a chave da IA. Depois o app **se atualiza sozinho**: uma vez por dia olha a última
+versão no GitHub e o painel oferece a nova. O download é conferido pelo SHA-256 da release antes
+de trocar o `.exe` (dá para desligar em Configurações).
+
 ## Configurações
 
 Painel → **Configurações** (ou `dontStayAlone.exe --configurar`). A janela tem uma barra lateral
 com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
 
-- **Geral:** mascote, tamanho (extra pequeno a grande), velocidade, tempo para
-  considerar que você saiu e iniciar com o Windows.
+- **Geral:** mascote, **amigo na tela** (um segundo mascote que passeia e visita o
+  primeiro), tamanho, velocidade, tempo para considerar que você saiu, seu aniversário,
+  iniciar com o Windows, procurar versões novas, ficar quieto em reuniões, tema (claro,
+  escuro ou igual ao Windows) e idioma.
 - **Lembretes:** os três embutidos e quantos lembretes seus quiser.
 - **Conversa:** serviço de IA, modelo e a **chave da API** (fica no Gerenciador de
   Credenciais do Windows, protegida pela sua conta — nunca em arquivo), com botão de teste.
-- **Criar mascote:** desenhe o seu mascote 16×16 (ou comece a partir de um existente)
-  e o app cria sozinho as animações de piscar, dormir, andar e pular — ou descreva
-  o mascote e peça para a **IA desenhar**, depois ajuste. "Salvar e usar" já coloca
-  ele na tela (fica em `%APPDATA%\StayAlone\mascots\`).
+  E a **memória**: ligada, o mascote lembra do que você conta (uma prova na sexta, o nome
+  do seu gato) e puxa o assunto depois. Fica só num `memoria.txt` no seu PC, que você vê,
+  edita ou apaga ali mesmo; senhas, documentos e números nunca são guardados.
+- **Criar mascote:** desenhe o seu mascote (ou comece a partir de um existente) e o app
+  cria sozinho as animações de piscar, dormir, andar e pular. Se quiser, desenhe também
+  as poses dormindo, comendo, feliz e andando (a pose parada aparece clarinha por baixo).
+  Mascotes podem ser 16×16 ou 32×32 — ou descreva o mascote e peça para a **IA desenhar**,
+  depois ajuste. "Salvar e usar" já coloca ele na tela (fica em `%APPDATA%\StayAlone\mascots\`).
 - **Plugins:** liga e desliga os plugins (veja abaixo), com botão de teste.
+- **Galeria:** mascotes e plugins da comunidade, instalados com um clique. Os arquivos vêm
+  da pasta [`gallery/`](gallery) deste repositório e são conferidos (SHA-256) antes de
+  gravar; plugins chegam desligados. Para publicar o seu, mande um pull request com a pasta
+  em `gallery/mascots/` ou `gallery/plugins/` e rode `python tools/gallery.py`.
 
 Mascotes podem ser "ele" ou "ela" (`article o|a` no `mascot.txt`): as falas se ajustam.
 
@@ -125,7 +141,8 @@ Troque clicando no desenho dele no painel. Cada um tem falas próprias ("Miau!",
   volta, acorda feliz e comemora — isso conta como uma pausa no dia.
 - Lembretes gentis, contados só em tempo de uso: beber água (45 min),
   alongar (60 min) e descansar os olhos (20 min, desligado por padrão).
-  Clique no balão para confirmar ("bebi água!"). Voltar de uma pausa zera o de alongar.
+  Clique no balão para confirmar ("bebi água!"), ou use **Bebi um copo d'água** no painel
+  (ou `--agua`) sempre que beber — conta no resumo do dia. Voltar de uma pausa zera o de alongar.
 - Nunca vira metralhadora: no mínimo 2 min entre lembretes; silenciado ou escondido,
   os lembretes são descartados (não acumulam); em tela cheia, esperam.
 - Depois da meia-noite, sugere descansar (no máximo 1× por hora).
@@ -137,6 +154,9 @@ Troque clicando no desenho dele no painel. Cada um tem falas próprias ("Miau!",
   brincadeiras; cai bem devagar e nunca abaixo de um piso.
 - **Resumo do dia** (automático após as 18h, ou pelo painel): tempo juntos, pausas e água.
 - **Foco** (pomodoro 25/5 min) opcional, pelo painel.
+- **Rotina:** parabéns no seu aniversário, falas de segunda e de sexta, um toque depois de
+  3 horas sem pausa, e fica **quieto em reuniões** (Teams, Zoom, Webex... — ele olha só o
+  nome do programa na frente, nunca a tela).
 
 **Privacidade:** nada vai para a internet (a não ser a conversa com a IA, se você
 configurar). Ele nunca lê o teclado — sabe só *se* houve atividade (`GetLastInputInfo`).
@@ -149,7 +169,8 @@ registrada. Detalhes de segurança em [`SECURITY.md`](SECURITY.md).
 - atalhos grandes: **Petisco**, **Bolinha**, **Conversar** e **Foco**;
 - trocar de mascote clicando no desenho (o **+** abre o criador de mascotes);
 - tamanho num seletor (Mini, P, M, G) e interruptores para silenciar e esconder;
-- Lembretes, Resumo do dia, Configurações e Sair.
+- Bebi um copo d'água (com a conta de hoje), Lembretes, Resumo do dia, Configurações e Sair;
+- uma faixa "Versão nova disponível" quando há atualização.
 
 **Linha de comando** — útil para atalhos do Windows; funciona com o app já aberto:
 
@@ -157,11 +178,14 @@ registrada. Detalhes de segurança em [`SECURITY.md`](SECURITY.md).
 dontStayAlone.exe --bolinha
 ```
 
-Também: `--petisco`, `--resumo` e `--esconder` (alterna esconder/mostrar).
+Também: `--petisco`, `--agua`, `--conversar`, `--resumo`, `--configurar` e `--esconder`
+(alterna esconder/mostrar).
 
 ## Compilar
 
-Requer Rust (toolchain `stable-x86_64-pc-windows-gnu` ou MSVC).
+Requer Rust (toolchain `stable-x86_64-pc-windows-gnu` ou MSVC). Com MSVC, o
+`.cargo/config.toml` liga o Control Flow Guard e o CRT estático; os workflows do GitHub Actions
+compilam, testam e publicam as releases assim.
 
 ```bash
 cargo build --release
@@ -187,7 +211,9 @@ cargo test
   `jujubs` substitui o mascote embutido. Também vale uma pasta `mascots\` ao lado do `.exe`.
   Arquivos de mods com mais de 256 KB são ignorados; nomes e textos são limpos antes de
   aparecer em menus, balões ou na conversa.
-- **Formato dos sprites:** texto puro, 16×16, uma letra por cor — veja
+- **Idiomas:** as falas em inglês ficam em `phrases_en.txt` (padrão e na pasta de cada
+  mascote). Em inglês, um mascote sem `phrases_en.txt` usa as falas padrão em inglês.
+- **Formato dos sprites:** texto puro, 16×16 (ou 32×32 com a linha `size 32`), uma letra por cor — veja
   [`assets/mascots/calcifer/mascot.txt`](assets/mascots/calcifer/mascot.txt).
   `idle2`, `look`, `eat1`, `eat2` e `food` são opcionais; `about` descreve a personalidade
   usada na conversa.
@@ -220,7 +246,16 @@ src/phrases.rs         parser, sobreposição e sorteio das falas
 src/pack.rs            mascotes embutidos e mods
 src/config.rs          config.ini, state.ini, chat.ini e "Iniciar com o Windows"
 src/plugins.rs         plugins: descoberta, aprovação por SHA-256, execução com limites
-src/sha256.rs          SHA-256 (impressão digital dos plugins)
+src/sha256.rs          SHA-256 (plugins, atualizações e galeria)
+src/lang.rs            idioma da interface (português no código, tabela em inglês)
+src/update.rs          atualização automática pelas releases do GitHub
+src/gallery.rs         galeria da comunidade
+src/memory.rs          memória da conversa (memoria.txt)
+src/buddy.rs           o amigo na tela
+src/welcome.rs         boas-vindas da primeira vez
+src/net.rs             HTTPS via WinHTTP (só nos processos filhos)
+src/child.rs           processos filhos com limite de tempo e de saída
+src/ui.rs              botões, interruptores e tema escuro dos controles
 src/secret.rs          chave da API no Gerenciador de Credenciais do Windows
 src/mailbox.rs         dados entre janelas/threads sem ponteiros nas mensagens
 src/system.rs          leituras do sistema (tempo ocioso, bateria, monitores, tela cheia)

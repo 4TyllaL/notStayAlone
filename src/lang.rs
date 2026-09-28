@@ -332,6 +332,7 @@ const EN: &[(&str, &str)] = &[
     ("mascote não encontrado", "mascot not found"),
     ("mascot.txt não abriu (ou passa de 256 KB)", "mascot.txt didn't open (or is over 256 KB)"),
     ("não encontrado", "not found"),
+    ("É", "Pronoun"),
 ];
 
 #[cfg(test)]

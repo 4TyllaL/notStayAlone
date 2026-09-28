@@ -552,7 +552,7 @@ unsafe fn build(hwnd: HWND) {
     let about = add(Some(3), "EDIT", "", edit, WS_EX_CLIENTEDGE, (xr, 192, rw, 24), IDC_ABOUT);
     SendMessageW(about, EM_SETCUEBANNER, 1, w(tr("Ex.: um polvo roxo curioso")).as_ptr() as LPARAM);
     limit(about, 200);
-    label!(3, "É", xr, 224, rw);
+    label!(3, tr("É"), xr, 224, rw);
     add(Some(3), "COMBOBOX", "", combo, 0, (xr, 246, rw, 120), IDC_PRONOUN);
     label!(3, tr("Começar a partir de"), xr, 278, rw);
     add(Some(3), "COMBOBOX", "", combo, 0, (xr, 300, rw, 300), IDC_TEMPLATE);
