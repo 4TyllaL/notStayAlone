@@ -63,8 +63,10 @@ Credenciais do Windows.
 
 ## Riscos residuais (o que ainda não está coberto)
 
-- **Sem assinatura digital (Authenticode).** Para distribuir, assine o `.exe`: o
-  Windows SmartScreen confia mais e dá para detectar adulteração.
+- **Assinatura digital (Authenticode) em implantação.** O workflow de release assina pela
+  SignPath Foundation assim que o projeto for aprovado lá (cada pedido de assinatura é
+  aprovado à mão). Até lá, as releases saem sem assinatura; o hash SHA-256 e a atestação de
+  origem do GitHub continuam valendo.
 - **Control Flow Guard só no build MSVC.** A toolchain GNU não gera CFG. O build MSVC
   (`.cargo/config.toml` e o workflow de release) liga CFG, CRT estático, `/CETCOMPAT` e
   `/DEPENDENTLOADFLAG` (conferido por `.github/scripts/check-exe.ps1`). Um `.exe` compilado

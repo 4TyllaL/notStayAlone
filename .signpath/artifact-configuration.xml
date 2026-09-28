@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuração do artefato na SignPath (slug "exe" no projeto "notStayAlone").
+  Cópia de referência: a SignPath usa a que está cadastrada no site; mantenha as duas iguais.
+
+  O artefato é o zip que o GitHub Actions gera com o upload-artifact: dentro dele,
+  só o dontStayAlone.exe, que recebe a assinatura Authenticode (SHA-256).
+-->
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <pe-file path="dontStayAlone.exe" product-name="!StayAlone">
+      <authenticode-sign hash-algorithm="sha256" description="!StayAlone" description-url="https://github.com/4TyllaL/notStayAlone" />
+    </pe-file>
+  </zip-file>
+</artifact-configuration>
