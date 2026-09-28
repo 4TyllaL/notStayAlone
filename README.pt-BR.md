@@ -11,6 +11,17 @@ Um mascote em pixel art que faz companhia na área de trabalho — feito para se
 | Memória privada | < 20 MB | ~2,3 MB |
 | CPU | ~0% | ~0,03% da máquina (0,05–0,4% de um núcleo: parado → andando) |
 
+## Baixar
+
+Baixe o **[`StayAlone-v1.0.0-windows-x64.zip`](https://github.com/4TyllaL/notStayAlone/releases/latest)**
+na última versão, extraia onde quiser e abra o `StayAlone.exe` (Windows 10/11, 64 bits). Deixe o
+`stayalone-chat.exe` na mesma pasta se quiser conversar com a IA. Sem instalador; nada é gravado
+fora de `%APPDATA%\StayAlone`.
+
+Os executáveis ainda não têm assinatura digital, então o SmartScreen pode avisar na primeira vez
+(*Mais informações → Executar assim mesmo*). Cada versão traz um `SHA256SUMS.txt` para conferir os
+arquivos.
+
 ## Configurações
 
 Painel → **Configurações** (ou `StayAlone.exe --configurar`). A janela tem uma barra lateral

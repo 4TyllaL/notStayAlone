@@ -19,6 +19,16 @@ on the Win32 API, with no UI framework.
 | Private memory | < 20 MB | ~2–4 MB |
 | CPU | ~0% | ~0.03% of the machine |
 
+## Download
+
+Grab **[`StayAlone-v1.0.0-windows-x64.zip`](https://github.com/4TyllaL/notStayAlone/releases/latest)**
+from the latest release, extract it anywhere and open `StayAlone.exe` (Windows 10/11, 64-bit).
+Keep `stayalone-chat.exe` in the same folder if you want the AI chat. No installer, nothing
+written outside `%APPDATA%\StayAlone`.
+
+The binaries are not code-signed yet, so Windows SmartScreen may warn on first run
+(*More info → Run anyway*). Each release ships a `SHA256SUMS.txt` so you can check the files.
+
 ## Features
 
 - **Four mascots:** Calcifer (cat), Lance (dog), Zezé (bunny) and Jujubs (dinosaur),

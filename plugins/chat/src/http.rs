@@ -140,7 +140,7 @@ pub fn post(url: &str, key: Option<&str>, body: &str) -> Result<(u32, String), S
     let url = parse_url(url)?;
     unsafe {
         let api = WinHttp::load()?;
-        let session = Owned((api.open)(wide("StayAlone-chat/0.1").as_ptr(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, null(), null(), 0), &api)
+        let session = Owned((api.open)(wide(concat!("StayAlone-chat/", env!("CARGO_PKG_VERSION"))).as_ptr(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, null(), null(), 0), &api)
             .check()?;
         (api.set_timeouts)(session.0, 10_000, 10_000, 30_000, 60_000);
         // A chave vai num cabeçalho: redirecionamentos poderiam levá-la a outro servidor.

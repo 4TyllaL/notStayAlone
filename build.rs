@@ -244,6 +244,7 @@ fn version_info() -> Vec<u8> {
         string("FileVersion", &version),
         string("ProductVersion", &version),
         string("OriginalFilename", "StayAlone.exe"),
+        string("LegalCopyright", "© 2026 Atylla Azevedo · MIT License"),
         string("Comments", "Um mascote leve que faz companhia na área de trabalho."),
     ];
     let table = node("040904B0", &[], 0, true, &strings);
