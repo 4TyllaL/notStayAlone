@@ -1,0 +1,17 @@
+# Falas próprias do Pingo (só os tópicos que mudam; o resto vem das falas padrão).
+
+[ola]
+Oi! Eu sou o Pingo. *bate as asinhas*
+Olá, olá! Que bom te ver!
+
+[carinho]
+*bate as asinhas*
+Hihi, faz cócegas!
+Brrr... que carinho quentinho!
+
+[petisco]
+Peixinho!! Muito obrigado!
+Nham! Peixe fresquinho é o melhor.
+
+[bolinha_fim]
+Ufa! Deslizei tanto que fiquei tonto.

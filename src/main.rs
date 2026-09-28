@@ -9,6 +9,7 @@ mod child;
 mod companion;
 mod config;
 mod flyout;
+mod gallery;
 mod gfx;
 mod mailbox;
 mod maker;
@@ -117,6 +118,8 @@ fn main() {
         ai::ARG => std::process::exit(ai::serve()),
         update::ARG_CHECK => std::process::exit(update::serve_check()),
         update::ARG_DOWNLOAD => std::process::exit(update::serve_download(arg(2))),
+        gallery::ARG_LIST => std::process::exit(gallery::serve_list()),
+        gallery::ARG_INSTALL => std::process::exit(gallery::serve_install(arg(2))),
         _ => {}
     }
     // Recém-atualizado: espera a versão antiga fechar antes de ocupar o lugar dela.

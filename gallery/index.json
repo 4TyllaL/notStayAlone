@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "kind": "mascote",
+      "id": "calcifer-hd",
+      "name": "Calcifer HD",
+      "author": "4TyllaL",
+      "about": "um gatinho laranja brincalhão, agora em alta definição (32×32)",
+      "files": [
+        {
+          "path": "mascots/calcifer-hd/mascot.txt",
+          "sha256": "2232752c6f56f601e06c589da471e31baee6d00b54963a65b9f291db12c3dee0"
+        },
+        {
+          "path": "mascots/calcifer-hd/phrases.txt",
+          "sha256": "fbd891a7f93af2847da734e96f84a21a45d3870ca68e7e5bf9b34434058a7319"
+        }
+      ]
+    },
+    {
+      "kind": "mascote",
+      "id": "pingo",
+      "name": "Pingo",
+      "author": "4TyllaL",
+      "about": "um pinguim friorento e muito educado, que adora peixinho e um bom cafuné",
+      "files": [
+        {
+          "path": "mascots/pingo/mascot.txt",
+          "sha256": "57ea073dbf87a7baa15053a10c243836e430b9deb43237c1bc7211a768344c80"
+        },
+        {
+          "path": "mascots/pingo/phrases.txt",
+          "sha256": "f30780ef1a1bcd7ee4b1daff64abc64d9d76f42c614afdfff865da07be547bb4"
+        }
+      ]
+    },
+    {
+      "kind": "plugin",
+      "id": "frase-do-dia",
+      "name": "Frase do dia",
+      "author": "4TyllaL",
+      "about": "De tempos em tempos o mascote diz uma frase de ânimo.",
+      "files": [
+        {
+          "path": "plugins/frase-do-dia/frase.ps1",
+          "sha256": "21e537b93a1153a95173af759f768412961952017fc117429987e25d297c615b"
+        },
+        {
+          "path": "plugins/frase-do-dia/plugin.ini",
+          "sha256": "4a1281da85ff846a99c57d75d162eb633bfcef7852e0624f397d18b0244106e2"
+        }
+      ]
+    }
+  ]
+}

@@ -3,3 +3,5 @@
 *.ps1 text eol=crlf
 *.png binary
 *.ico binary
+# A galeria é servida byte a byte pelo GitHub: o SHA-256 do índice tem que bater.
+gallery/** -text

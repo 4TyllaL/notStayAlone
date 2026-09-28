@@ -34,6 +34,7 @@ use crate::{
     mailbox,
     maker::{Drawing, Pose},
     memory,
+    gallery,
     pack::{self, PackInfo},
     child::Reply,
     plugins::{self, Enabled, Kind as PluginKind, Plugin, Status},
@@ -66,14 +67,16 @@ pub enum Page {
     Chat,
     Maker,
     Plugins,
+    Gallery,
 }
 
-const PAGES: [(Page, char, &str); 5] = [
+const PAGES: [(Page, char, &str); 6] = [
     (Page::General, icon::HOME, "Geral"),
     (Page::Reminders, icon::BELL, "Lembretes"),
     (Page::Chat, icon::CHAT, "Conversa"),
     (Page::Maker, icon::PALETTE, "Criar mascote"),
     (Page::Plugins, icon::PUZZLE, "Plugins"),
+    (Page::Gallery, icon::SHOP, "Galeria"),
 ];
 const SPEEDS: [&str; 4] = ["Devagar", "Normal", "Rápido", "Muito rápido"];
 
@@ -101,6 +104,11 @@ const IDC_MEMORY_CLEAR: i32 = 133;
 const IDC_BUDDY: i32 = 135;
 const IDC_THEME: i32 = 136;
 const IDC_LANGUAGE: i32 = 137;
+const IDC_GALLERY: i32 = 170;
+const IDC_GALLERY_INFO: i32 = 171;
+const IDC_GALLERY_INSTALL: i32 = 172;
+const IDC_GALLERY_RELOAD: i32 = 173;
+const IDC_GALLERY_STATUS: i32 = 174;
 const IDC_MASCOT: i32 = 101;
 const IDC_SIZE: i32 = 102;
 const IDC_SPEED: i32 = 103;
@@ -165,6 +173,8 @@ enum Busy {
     Test,
     Draw,
     Plugin,
+    GalleryList,
+    GalleryInstall,
 }
 
 struct State {
@@ -201,6 +211,9 @@ struct State {
     plugins: Vec<Plugin>,
     /// (linha, ligado?) marcado na lista de plugins, esperando ser tratado.
     plugin_toggle: Option<(usize, bool)>,
+    /// Itens da galeria (carregados na primeira vez que a página abre).
+    gallery: Vec<gallery::Entry>,
+    gallery_loaded: bool,
 }
 
 /// Para Tab/Enter/Esc funcionarem como numa caixa de diálogo.
@@ -298,6 +311,8 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
         busy: None,
         plugins: plugins::list(),
         plugin_toggle: None,
+        gallery: Vec::new(),
+        gallery_loaded: false,
     });
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(state) as isize);
     OPEN.with(|o| o.set(hwnd));
@@ -580,6 +595,23 @@ unsafe fn build(hwnd: HWND) {
         40
     );
 
+    // --- Galeria
+    section!(5, "Galeria da comunidade", 116);
+    hint!(
+        5,
+        "Mascotes e plugins da comunidade. Os arquivos vêm do repositório do !StayAlone no GitHub e são conferidos (SHA-256) antes de instalar.",
+        140,
+        40
+    );
+    let gallery_list = add(Some(5), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 188, CONTENT - 2 * x0, 214), IDC_GALLERY);
+    SendMessageW(gallery_list, LVM_SETEXTENDEDLISTVIEWSTYLE, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as WPARAM, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as LPARAM);
+    add_columns(gallery_list, &[("Nome", CONTENT - 2 * x0 - 236), ("Tipo", 86), ("Autor", 146)], dpi);
+    add(Some(5), "STATIC", "", 0, 0, (x0, 412, CONTENT - 2 * x0, 40), IDC_GALLERY_INFO);
+    add(Some(5), "BUTTON", "Instalar", button, 0, (x0, 460, 110, 30), IDC_GALLERY_INSTALL);
+    add(Some(5), "BUTTON", "Atualizar lista", button, 0, (x0 + 118, 460, 140, 30), IDC_GALLERY_RELOAD);
+    add(Some(5), "STATIC", "", 0, 0, (x0, 500, CONTENT - 2 * x0, 40), IDC_GALLERY_STATUS);
+    hint!(5, "Plugins instalados chegam desligados: ligue na página Plugins quando quiser.", 548, 20);
+
     // --- Rodapé (fora dos cartões)
     add(None, "BUTTON", "Salvar", button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
     add(None, "BUTTON", "Cancelar", button, 0, (CONTENT - 20 - 104, FOOTER, 104, 32), IDCANCEL);
@@ -630,6 +662,61 @@ unsafe fn show_page(hwnd: HWND, page: usize) {
         ShowWindow(control, if p == st.page { SW_SHOW } else { SW_HIDE });
     }
     InvalidateRect(hwnd, null(), 0);
+    if st.page == Page::Gallery as usize && !st.gallery_loaded && st.busy.is_none() {
+        load_gallery(hwnd);
+    }
+}
+
+// --- galeria ----------------------------------------------------------------------
+
+unsafe fn load_gallery(hwnd: HWND) {
+    let Some(st) = state(hwnd) else { return };
+    if st.busy.is_some() {
+        return;
+    }
+    st.busy = Some(Busy::GalleryList);
+    set_text(hwnd, IDC_GALLERY_STATUS, "Buscando a galeria...");
+    gallery::list(hwnd, WM_CHAT_REPLY);
+}
+
+unsafe fn fill_gallery(hwnd: HWND) {
+    let Some(st) = state(hwnd) else { return };
+    let list = item(hwnd, IDC_GALLERY);
+    SendMessageW(list, LVM_DELETEALLITEMS, 0, 0);
+    for (i, e) in st.gallery.iter().enumerate() {
+        insert_row(list, i, &[&e.name, e.kind.label(), &e.author]);
+    }
+    show_gallery_item(hwnd);
+}
+
+fn selected_row(hwnd: HWND, id: i32) -> Option<usize> {
+    let i = unsafe { SendMessageW(item(hwnd, id), LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as LPARAM) };
+    (i >= 0).then_some(i as usize)
+}
+
+unsafe fn show_gallery_item(hwnd: HWND) {
+    let Some(st) = state(hwnd) else { return };
+    let entry = selected_row(hwnd, IDC_GALLERY).and_then(|i| st.gallery.get(i));
+    set_text(hwnd, IDC_GALLERY_INFO, entry.map_or("Selecione um item para ver o que ele faz.", |e| e.about.as_str()));
+    EnableWindow(item(hwnd, IDC_GALLERY_INSTALL), (entry.is_some() && st.busy.is_none()) as BOOL);
+}
+
+unsafe fn on_gallery_command(hwnd: HWND, id: i32) {
+    let Some(st) = state(hwnd) else { return };
+    match id {
+        IDC_GALLERY_RELOAD => load_gallery(hwnd),
+        IDC_GALLERY_INSTALL => {
+            let Some(entry) = selected_row(hwnd, IDC_GALLERY).and_then(|i| st.gallery.get(i).cloned()) else { return };
+            if st.busy.is_some() {
+                return;
+            }
+            st.busy = Some(Busy::GalleryInstall);
+            set_text(hwnd, IDC_GALLERY_STATUS, &format!("Instalando \"{}\"...", entry.name));
+            show_gallery_item(hwnd);
+            gallery::install_in_child(hwnd, WM_CHAT_REPLY, &entry.id);
+        }
+        _ => {}
+    }
 }
 
 unsafe fn fill_combo(hwnd: HWND, id: i32, labels: &[String], selected: usize) {
@@ -1178,6 +1265,33 @@ unsafe fn on_reply(hwnd: HWND, reply: Reply) {
         }
         (Some(Busy::Plugin), Ok(text)) => set_text(hwnd, IDC_PLUGIN_RESULT, &format!("✓ Respondeu: \"{}\"", chat::shorten(&text))),
         (Some(Busy::Plugin), Err(e)) => set_text(hwnd, IDC_PLUGIN_RESULT, &format!("✗ {}", chat::shorten(&e))),
+        (Some(Busy::GalleryList), Ok(text)) => {
+            st.gallery = gallery::parse_lines(&text);
+            st.gallery_loaded = true;
+            let count = st.gallery.len();
+            fill_gallery(hwnd);
+            set_text(hwnd, IDC_GALLERY_STATUS, &format!("{count} itens na galeria."));
+        }
+        (Some(Busy::GalleryList), Err(e)) => {
+            set_text(hwnd, IDC_GALLERY_STATUS, &format!("Não consegui abrir a galeria: {}", chat::shorten(&e)));
+        }
+        (Some(Busy::GalleryInstall), Ok(text)) => {
+            let status = if text.starts_with("plugin") {
+                st.plugins = plugins::list();
+                fill_plugins(hwnd, None);
+                "Instalado! O plugin está na página Plugins, desligado: ligue quando quiser."
+            } else {
+                st.packs = pack::list();
+                fill_mascot_combos(hwnd);
+                "Instalado! Escolha o mascote na página Geral (ou no painel)."
+            };
+            set_text(hwnd, IDC_GALLERY_STATUS, status);
+            show_gallery_item(hwnd);
+        }
+        (Some(Busy::GalleryInstall), Err(e)) => {
+            set_text(hwnd, IDC_GALLERY_STATUS, &format!("Não instalei: {}", chat::shorten(&e)));
+            show_gallery_item(hwnd);
+        }
         (None, _) => {}
     }
 }
@@ -1414,6 +1528,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 IDC_MEMORY_OPEN | IDC_MEMORY_CLEAR => on_memory_command(hwnd, id),
                 IDC_TEMPLATE | IDC_POSE | IDC_CLEAR | IDC_MIRROR | IDC_SAVE_MASCOT | IDC_AI_GO => on_maker_command(hwnd, id, code),
                 IDC_PLUGIN_TEST | IDC_PLUGIN_FOLDER | IDC_PLUGIN_RELOAD => on_plugin_command(hwnd, id),
+                IDC_GALLERY_INSTALL | IDC_GALLERY_RELOAD => on_gallery_command(hwnd, id),
                 _ => {}
             }
             0
@@ -1422,6 +1537,8 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let hdr = &*(lp as *const NMHDR);
             if hdr.idFrom == IDC_LIST as usize && hdr.code == LVN_ITEMCHANGED {
                 on_list_change(hwnd, &*(lp as *const NMLISTVIEW));
+            } else if hdr.idFrom == IDC_GALLERY as usize && hdr.code == LVN_ITEMCHANGED {
+                show_gallery_item(hwnd);
             } else if hdr.idFrom == IDC_PLUGINS as usize && hdr.code == LVN_ITEMCHANGED {
                 on_plugins_change(hwnd, &*(lp as *const NMLISTVIEW));
             }

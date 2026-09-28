@@ -236,16 +236,21 @@ pub fn prepare_dir() -> Option<PathBuf> {
     fs::create_dir_all(&root).ok()?;
     let readme = root.join("LEIA-ME.txt");
     if !readme.exists() {
-        let _ = fs::write(readme, README.replace('\n', "\r\n"));
+        let _ = fs::write(readme, crlf(README));
         let (id, files) = EXAMPLE;
         let folder = root.join(id);
         if fs::create_dir_all(&folder).is_ok() {
             for (name, text) in files {
-                let _ = fs::write(folder.join(name), text.replace('\n', "\r\n"));
+                let _ = fs::write(folder.join(name), crlf(text));
             }
         }
     }
     Some(root)
+}
+
+/// Texto com fim de linha do Windows (seja qual for o do repositório).
+fn crlf(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\n', "\r\n")
 }
 
 /// O que um plugin de avisos recebe no stdin.
