@@ -35,6 +35,9 @@ use crate::{
 
 /// Terminou (ou fechou): as escolhas (`Choices`) vão para o app pelo `mailbox`.
 pub const WM_WELCOME_DONE: u32 = WM_APP + 13;
+/// Clicou num mascote do primeiro passo: o id (`String`) vai para o app pelo
+/// `mailbox`, que já troca o mascote da tela.
+pub const WM_WELCOME_MASCOT: u32 = WM_APP + 15;
 
 const WIDTH: i32 = 560;
 const HEIGHT: i32 = 470;
@@ -348,7 +351,10 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     let r = tile_rect(i, count, st.dpi);
                     x >= r.left && x < r.right && y >= r.top && y < r.bottom
                 }) {
-                    st.chosen = i;
+                    if i != st.chosen {
+                        st.chosen = i;
+                        mailbox::post(st.owner, WM_WELCOME_MASCOT, st.packs[i].0.id.clone());
+                    }
                     InvalidateRect(hwnd, null(), 0);
                 }
             }

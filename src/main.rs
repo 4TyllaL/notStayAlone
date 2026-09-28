@@ -69,7 +69,7 @@ use settings::{Draft, Page, WM_MASCOT_SAVED, WM_SETTINGS_APPLY};
 use sprite::{Art, Frame, Sheet, PIXELS, SPRITE};
 use system::{bounds_at, clock, cursor, fullscreen_app_running, idle_secs, last_input, ms_since, power};
 use tray::{Tray, WM_TRAY};
-use welcome::WM_WELCOME_DONE;
+use welcome::{WM_WELCOME_DONE, WM_WELCOME_MASCOT};
 use win::{message, w};
 
 const TIMER_ANIM: usize = 1;
@@ -1605,6 +1605,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_CHAT_SEND => {
             if let Some(text) = mailbox::take::<String>(hwnd, msg) {
                 app.on_chat_send(text);
+            }
+        }
+        WM_WELCOME_MASCOT => {
+            if let Some(id) = mailbox::take::<String>(hwnd, msg) {
+                if let Some(info) = pack::list().into_iter().find(|p| p.id == id && p.id != app.config.mascot) {
+                    app.set_mascot(&info); // já aparece e diz "oi"
+                }
             }
         }
         WM_WELCOME_DONE => {
