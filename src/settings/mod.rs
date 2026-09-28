@@ -51,6 +51,8 @@ use crate::{
 pub const WM_SETTINGS_APPLY: u32 = WM_APP + 5;
 /// Mascote criado aqui foi salvo: o id (`String`) vai para o app pelo `mailbox`.
 pub const WM_MASCOT_SAVED: u32 = WM_APP + 8;
+/// "Procurar atualização" na página Sobre: o app procura e o mascote responde.
+pub const WM_UPDATE_REQUEST: u32 = WM_APP + 16;
 /// Interna: um plugin foi marcado/desmarcado na lista (tratado fora da notificação,
 /// porque pode abrir uma pergunta). O que mudou fica em `State::plugin_toggle`.
 const WM_PLUGIN_TOGGLE: u32 = WM_APP + 20;
@@ -120,6 +122,8 @@ const IDC_GALLERY_RELOAD: i32 = 173;
 const IDC_GALLERY_STATUS: i32 = 174;
 const IDC_ABOUT_PROJECTS: i32 = 180;
 const IDC_ABOUT_GITHUB: i32 = 181;
+const IDC_ABOUT_UPDATE: i32 = 182;
+const IDC_ABOUT_STATUS: i32 = 183;
 const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
@@ -670,6 +674,8 @@ unsafe fn build(hwnd: HWND) {
     }
     add(Some(6), "BUTTON", tr("Meus projetos"), button, 0, (x0, 344, 150, 32), IDC_ABOUT_PROJECTS);
     add(Some(6), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 344, 170, 32), IDC_ABOUT_GITHUB);
+    add(Some(6), "BUTTON", tr("Procurar atualização"), button, 0, (x0 + 336, 344, 172, 32), IDC_ABOUT_UPDATE);
+    add(Some(6), "STATIC", "", 0, 0, (x0, 384, CONTENT - 2 * x0, 20), IDC_ABOUT_STATUS);
 
     // --- Rodapé (fora dos cartões)
     add(None, "BUTTON", tr("Salvar"), button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
@@ -1617,6 +1623,12 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     }
                 }
                 IDC_ADD | IDC_UPDATE | IDC_REMOVE => on_reminder_command(hwnd, id),
+                IDC_ABOUT_UPDATE => {
+                    if let Some(st) = state(hwnd) {
+                        PostMessageW(st.owner, WM_UPDATE_REQUEST, 0, 0);
+                    }
+                    set_text(hwnd, IDC_ABOUT_STATUS, tr("Procurando... o mascote avisa o que encontrar."));
+                }
                 IDC_ABOUT_PROJECTS | IDC_ABOUT_GITHUB => {
                     let url = if id == IDC_ABOUT_PROJECTS { PROJECTS_URL } else { GITHUB_URL };
                     ShellExecuteW(hwnd, w("open").as_ptr(), w(url).as_ptr(), null(), null(), SW_SHOWNORMAL);

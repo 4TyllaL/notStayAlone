@@ -69,7 +69,7 @@ use child::Reply;
 use plugins::{Kind as PluginKind, Plugin};
 use prop::{Kind, Prop};
 use rng::Rng;
-use settings::{Draft, Page, WM_MASCOT_SAVED, WM_SETTINGS_APPLY};
+use settings::{Draft, Page, WM_MASCOT_SAVED, WM_SETTINGS_APPLY, WM_UPDATE_REQUEST};
 use sprite::{Art, Frame, Sheet, PIXELS, SPRITE};
 use system::{bounds_at, clock, cursor, fullscreen_app_running, idle_secs, last_input, ms_since, power};
 use tray::{Tray, WM_TRAY};
@@ -364,6 +364,8 @@ struct App {
     /// Procurando ou baixando versão nova agora.
     update_busy: bool,
     update_checked: Option<u64>,
+    /// A procura em andamento foi pedida por você (responde mesmo sem novidade).
+    update_manual: bool,
     /// Programa de reunião em primeiro plano (com a opção ligada).
     meeting: bool,
 }
@@ -444,6 +446,7 @@ impl App {
             update: None,
             update_busy: false,
             update_checked: None,
+            update_manual: false,
             meeting: false,
         }
     }
@@ -1012,21 +1015,40 @@ impl App {
             None => secs >= UPDATE_FIRST_SECS,
             Some(last) => secs >= last + UPDATE_EVERY_SECS,
         };
-        if self.config.updates && !self.update_busy && due {
-            self.update_checked = Some(secs);
-            self.update_busy = true;
-            update::check(self.hwnd, WM_UPDATE_CHECKED);
+        if self.config.updates && due {
+            self.request_update_check(false);
         }
+    }
+
+    /// Procura versão nova (num processo filho). `manual` = você pediu: a resposta
+    /// aparece mesmo quando não há novidade ou quando falha.
+    unsafe fn request_update_check(&mut self, manual: bool) {
+        self.update_manual |= manual;
+        if self.update_busy {
+            return; // já está procurando (ou baixando)
+        }
+        self.update_checked = Some(self.secs());
+        self.update_busy = true;
+        update::check(self.hwnd, WM_UPDATE_CHECKED);
     }
 
     unsafe fn on_update_checked(&mut self, reply: Reply) {
         self.update_busy = false;
-        // Sem internet ou GitHub fora do ar: tenta de novo amanhã, sem incomodar.
-        let Some(release) = reply.ok().and_then(|line| update::Release::from_line(&line)) else { return };
-        if update::is_newer(&release.version, update::current()) && self.update.as_ref() != Some(&release) {
-            let text = fill(tr("Tem versão nova de mim (v{})! Abra o painel para atualizar."), &[&release.version]);
+        let manual = std::mem::take(&mut self.update_manual);
+        let release = match reply.and_then(|line| update::Release::from_line(&line).ok_or_else(|| tr("resposta inválida").to_string())) {
+            Ok(release) => release,
+            // Sem internet ou GitHub fora do ar: tenta de novo mais tarde, sem incomodar.
+            Err(e) if manual => return self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui procurar agora: {}"), &[&e])))),
+            Err(_) => return,
+        };
+        if update::is_newer(&release.version, update::current()) {
+            if manual || self.update.as_ref() != Some(&release) {
+                let text = fill(tr("Tem versão nova de mim (v{})! Abra o painel para atualizar."), &[&release.version]);
+                self.speak(Topic::App, Some(text));
+            }
             self.update = Some(release);
-            self.speak(Topic::App, Some(text));
+        } else if manual {
+            self.speak(Topic::App, Some(fill(tr("Você já está na versão mais nova (v{})!"), &[&update::current()])));
         }
     }
 
@@ -1039,6 +1061,7 @@ impl App {
 
     unsafe fn on_update_downloaded(&mut self, reply: Reply) {
         self.update_busy = false;
+        self.update_manual = false; // um pedido feito durante o download já foi respondido por ele
         let installed = reply.and_then(|path| {
             self.save_state();
             update::install(&path)
@@ -1720,6 +1743,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 app.apply_settings(&draft);
             }
         }
+        // Botão "Procurar atualização" (página Sobre). Sem dados: não precisa do `mailbox`.
+        WM_UPDATE_REQUEST => app.request_update_check(true),
         WM_MASCOT_SAVED => {
             let saved = mailbox::take::<String>(hwnd, msg).and_then(|id| pack::list().into_iter().find(|p| p.id == id));
             if let Some(info) = saved {
