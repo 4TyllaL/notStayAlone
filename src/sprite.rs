@@ -239,15 +239,6 @@ impl Art {
         self.sheet.article.as_deref() == Some("a")
     }
 
-    /// "o" ou "a", para frases como "Diga algo para a Jujubs".
-    pub fn article(&self) -> &'static str {
-        if self.female() {
-            "a"
-        } else {
-            "o"
-        }
-    }
-
     /// Lado da grade (16 ou 32).
     pub fn size(&self) -> usize {
         self.sheet.size
@@ -282,7 +273,7 @@ mod tests {
 
     #[test]
     fn embedded_mascots_are_valid() {
-        for (id, mascot, _) in EMBEDDED {
+        for (id, mascot, ..) in EMBEDDED {
             let art = Art::parse(mascot).unwrap_or_else(|e| panic!("{id}: {e}"));
             assert!(art.food.is_some(), "{id} sem comida");
             assert_ne!(art.index(Frame::Eat1), art.index(Frame::Idle), "{id} sem frame de comer");

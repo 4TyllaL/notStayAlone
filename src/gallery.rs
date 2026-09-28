@@ -10,6 +10,7 @@ use std::{fs, path::PathBuf};
 use crate::{
     ai::json::{self, Json},
     child::{self, Reply},
+    lang::{fill, tr},
     net, pack, plugins, sha256,
     win::clean_line,
 };
@@ -33,7 +34,7 @@ pub enum Kind {
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Mascot => "Mascote",
+            Kind::Mascot => tr("Mascote"),
             Kind::Plugin => "Plugin",
         }
     }
@@ -120,9 +121,9 @@ fn parse_index(text: &str) -> Result<Vec<Item>, String> {
 fn fetch_index() -> Result<Vec<Item>, String> {
     let (status, body) = net::get(&format!("{BASE}index.json"), "application/json", MAX_INDEX)?;
     if status != 200 {
-        return Err(format!("a galeria respondeu HTTP {status}"));
+        return Err(fill(tr("a galeria respondeu HTTP {}"), &[&status]));
     }
-    parse_index(&String::from_utf8(body).map_err(|_| "índice inválido".to_string())?)
+    parse_index(&String::from_utf8(body).map_err(|_| tr("índice inválido").to_string())?)
 }
 
 // --- processos filhos --------------------------------------------------------------
@@ -161,16 +162,16 @@ fn report(result: Result<String, String>) -> i32 {
 }
 
 fn install(id: &str) -> Result<String, String> {
-    let item = fetch_index()?.into_iter().find(|i| i.id == id).ok_or("esse item não está mais na galeria")?;
+    let item = fetch_index()?.into_iter().find(|i| i.id == id).ok_or(tr("esse item não está mais na galeria"))?;
     // Baixa e confere tudo antes de gravar qualquer coisa.
     let mut downloaded = Vec::new();
     for (path, sha) in &item.files {
         let (status, bytes) = net::get(&format!("{BASE}{path}"), "application/octet-stream", MAX_FILE)?;
         if status != 200 {
-            return Err(format!("não consegui baixar {path} (HTTP {status})"));
+            return Err(fill(tr("não consegui baixar {} (HTTP {})"), &[&path, &status]));
         }
         if sha256::hex(&bytes) != *sha {
-            return Err(format!("{path} não confere com o índice (SHA-256)"));
+            return Err(fill(tr("{} não confere com o índice (SHA-256)"), &[&path]));
         }
         let name = path.rsplit('/').next().unwrap_or_default().to_string();
         downloaded.push((name, bytes));
@@ -179,7 +180,7 @@ fn install(id: &str) -> Result<String, String> {
         Kind::Mascot => pack::user_dir(),
         Kind::Plugin => plugins::dir(),
     }
-    .ok_or("sem pasta de dados")?;
+    .ok_or(tr("sem pasta de dados"))?;
     let folder = root.join(&item.id);
     fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     for (name, bytes) in downloaded {

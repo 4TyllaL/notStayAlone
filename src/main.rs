@@ -11,6 +11,7 @@ mod config;
 mod flyout;
 mod gallery;
 mod gfx;
+mod lang;
 mod mailbox;
 mod maker;
 mod mascot;
@@ -56,6 +57,7 @@ use companion::{Companion, Event, Now, TypingSensor};
 use flyout::{Action, Choice, WM_FLYOUT_ACTION};
 use config::{Config, Size};
 use gfx::Canvas;
+use lang::{fill, tr};
 use mascot::{Bounds, Mascot, SLEEPY_DAY, SLEEPY_NIGHT};
 use pack::PackInfo;
 use phrases::{Phrases, Topic};
@@ -101,18 +103,21 @@ const UPDATE_EVERY_SECS: u64 = 24 * 3600;
 
 /// Argumentos aceitos na linha de comando (úteis em atalhos do Windows).
 /// Outra instância repassa o índice nesta lista com `WM_REMOTE`.
-const COMMANDS: [(&str, Action); 6] = [
+const COMMANDS: [(&str, Action); 7] = [
     ("--petisco", Action::Feed),
     ("--bolinha", Action::Ball),
     ("--resumo", Action::Summary),
     ("--esconder", Action::Hide),
     ("--configurar", Action::Settings),
     ("--conversar", Action::Chat),
+    ("--agua", Action::Water),
 ];
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let arg = |i: usize| args.get(i).map_or("", String::as_str);
+    // O idioma vale também para os modos internos (as mensagens de erro deles aparecem no app).
+    lang::set(Config::load().language);
     // Modos internos: o app abre a si mesmo para as tarefas de rede (sem janela).
     match arg(1) {
         ai::ARG => std::process::exit(ai::serve()),
@@ -152,12 +157,12 @@ fn main() {
         let first_run = !config::exists();
         let config = Config::load();
         apply_theme(config.theme);
-        let base_phrases = load_asset("phrases.txt", phrases::EMBEDDED, Phrases::parse);
+        let base_phrases = load_asset(pack::phrases_file(), phrases::embedded(), Phrases::parse);
         let props = Sheet::parse(sprite::PROPS).expect("props embutidos válidos");
         let (pack, art, phrases) = match load_mascot(&config.mascot, &base_phrases) {
             Ok(loaded) => loaded,
             Err(e) => {
-                message(&format!("Não consegui carregar o mascote '{}', usando o padrão.\n\n{e}", config.mascot));
+                message(&fill(tr("Não consegui carregar o mascote '{}', usando o padrão.\n\n{}"), &[&config.mascot, &e]));
                 load_mascot(pack::DEFAULT, &base_phrases).expect("mascote padrão válido")
             }
         };
@@ -169,7 +174,7 @@ fn main() {
         (*app).buddy_hwnd = buddy_hwnd;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
         if just_updated {
-            (*app).pending = Some((Topic::App, Some(format!("Atualizei! Agora estou na versão {}.", update::current()))));
+            (*app).pending = Some((Topic::App, Some(fill(tr("Atualizei! Agora estou na versão {}."), &[&update::current()]))));
         }
         (*app).start();
         if first_run {
@@ -226,7 +231,7 @@ fn load_asset<T>(name: &str, embedded: &str, parse: fn(&str) -> Result<T, String
     if let Some(src) = custom {
         match parse(&src) {
             Ok(value) => return value,
-            Err(e) => message(&format!("{name} inválido, usando o padrão.\n\n{e}")),
+            Err(e) => message(&fill(tr("{} inválido, usando o padrão.\n\n{}"), &[&name, &e])),
         }
     }
     parse(embedded).unwrap_or_else(|e| panic!("{name} embutido inválido: {e}"))
@@ -234,7 +239,7 @@ fn load_asset<T>(name: &str, embedded: &str, parse: fn(&str) -> Result<T, String
 
 /// Carrega um mascote pelo id: (id, arte, falas padrão + falas próprias).
 fn load_mascot(id: &str, base: &Phrases) -> Result<(String, Art, Phrases), String> {
-    let info = pack::list().into_iter().find(|p| p.id == id).ok_or("não encontrado")?;
+    let info = pack::list().into_iter().find(|p| p.id == id).ok_or(tr("não encontrado"))?;
     load_pack(&info, base)
 }
 
@@ -242,7 +247,7 @@ fn load_pack(info: &PackInfo, base: &Phrases) -> Result<(String, Art, Phrases), 
     let pack = pack::load(info)?;
     let mut phrases = base.clone();
     // Falas padrão → no feminino (se for "ela") → falas próprias do mascote.
-    if pack.art.female() {
+    if pack.art.female() && !lang::is_english() {
         phrases.overlay(&Phrases::parse_partial(pack::FEMININE).expect("falas femininas válidas"));
     }
     if let Some(src) = &pack.phrases {
@@ -796,7 +801,7 @@ impl App {
     unsafe fn set_mascot(&mut self, info: &PackInfo) {
         let (id, art, phrases) = match load_pack(info, &self.base_phrases) {
             Ok(loaded) => loaded,
-            Err(e) => return message(&format!("Não consegui carregar '{}'.\n\n{e}", info.name)),
+            Err(e) => return message(&fill(tr("Não consegui carregar '{}'.\n\n{}"), &[&info.name, &e])),
         };
         self.hide_bubble();
         self.art = art;
@@ -814,6 +819,15 @@ impl App {
         self.say(Topic::Hello);
     }
 
+    /// Outro idioma: recarrega as falas padrão e as do mascote.
+    unsafe fn reload_phrases(&mut self) {
+        self.base_phrases = load_asset(pack::phrases_file(), phrases::embedded(), Phrases::parse);
+        if let Ok((_, _, phrases)) = load_mascot(&self.config.mascot, &self.base_phrases) {
+            self.phrases = phrases;
+        }
+        self.chat_history.clear(); // a conversa recomeça no idioma novo
+    }
+
     // --- conversa -----------------------------------------------------------
 
     unsafe fn open_chat(&mut self) {
@@ -828,7 +842,8 @@ impl App {
             right: self.bounds.right as i32,
             bottom: self.bounds.floor as i32,
         };
-        let placeholder = format!("Diga algo para {} {}...", self.art.article(), self.art.name);
+        let to = if self.art.female() { tr("Diga algo para a {}...") } else { tr("Diga algo para o {}...") };
+        let placeholder = fill(to, &[&self.art.name]);
         self.hide_bubble();
         chat::open(self.hwnd, &placeholder, center, self.mascot.y as i32 - 4, work, self.dpi);
     }
@@ -839,13 +854,13 @@ impl App {
             return; // uma pergunta de cada vez
         }
         let Some(plugin) = self.chat_plugin.clone() else {
-            let tip = "Para conversar comigo, ligue um plugin de conversa em Configurações → Plugins.";
+            let tip = tr("Para conversar comigo, ligue um plugin de conversa em Configurações → Plugins.");
             return self.speak(Topic::Chat, Some(tip.into()));
         };
         self.chat_history.push((true, text));
         let excess = self.chat_history.len().saturating_sub(chat::HISTORY);
         self.chat_history.drain(..excess);
-        let about = self.art.sheet.about.as_deref().unwrap_or("um mascote fofinho");
+        let about = self.art.sheet.about.as_deref().unwrap_or(tr("um mascote fofinho"));
         let mut system = chat::system_prompt(&self.art.name, about, self.art.female());
         if self.config.memory {
             system += &memory::prompt(&memory::load(), &today());
@@ -866,13 +881,13 @@ impl App {
                 if self.config.memory {
                     memory::remember(&facts, &today());
                 }
-                let text = if shown.is_empty() { "Anotado!".to_string() } else { chat::shorten(&shown) };
+                let text = if shown.is_empty() { tr("Anotado!").to_string() } else { chat::shorten(&shown) };
                 self.chat_history.push((false, text.clone()));
                 self.speak(Topic::Chat, Some(text));
             }
             Err(e) => {
                 self.chat_history.pop(); // a pergunta ficou sem resposta
-                self.speak(Topic::Chat, Some(chat::shorten(&format!("Hmm, não consegui responder: {e}"))));
+                self.speak(Topic::Chat, Some(chat::shorten(&fill(tr("Hmm, não consegui responder: {}"), &[&e]))));
             }
         }
     }
@@ -927,7 +942,7 @@ impl App {
             // Arquivo trocado depois de aprovado: pausa e avisa (uma vez).
             Err(e) if e == plugins::CHANGED => {
                 let notice = self.notices.remove(i);
-                self.speak(Topic::Plugin, Some(format!("Plugin \"{}\": {e}", notice.plugin.name)));
+                self.speak(Topic::Plugin, Some(format!("Plugin \"{}\": {}", notice.plugin.name, tr(plugins::CHANGED))));
             }
             Err(_) => {} // falhas de um aviso não interrompem você; o Testar da aba Plugins mostra o erro
         }
@@ -968,7 +983,7 @@ impl App {
         // Sem internet ou GitHub fora do ar: tenta de novo amanhã, sem incomodar.
         let Some(release) = reply.ok().and_then(|line| update::Release::from_line(&line)) else { return };
         if update::is_newer(&release.version, update::current()) && self.update.as_ref() != Some(&release) {
-            let text = format!("Tem versão nova de mim (v{})! Abra o painel para atualizar.", release.version);
+            let text = fill(tr("Tem versão nova de mim (v{})! Abra o painel para atualizar."), &[&release.version]);
             self.update = Some(release);
             self.speak(Topic::App, Some(text));
         }
@@ -977,7 +992,7 @@ impl App {
     unsafe fn start_update(&mut self) {
         let Some(release) = self.update.clone().filter(|_| !self.update_busy) else { return };
         self.update_busy = true;
-        self.speak(Topic::App, Some(format!("Baixando a versão {}...", release.version)));
+        self.speak(Topic::App, Some(fill(tr("Baixando a versão {}..."), &[&release.version])));
         update::fetch(self.hwnd, WM_UPDATE_DOWNLOADED, &release);
     }
 
@@ -991,7 +1006,7 @@ impl App {
             Ok(()) => {
                 DestroyWindow(self.hwnd); // a versão nova já está abrindo
             }
-            Err(e) => self.speak(Topic::App, Some(chat::shorten(&format!("Não consegui atualizar: {e}")))),
+            Err(e) => self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e])))),
         }
     }
 
@@ -1023,7 +1038,11 @@ impl App {
             apply_theme(new.theme);
         }
         self.config.theme = new.theme;
-        self.config.language = new.language;
+        if new.language != self.config.language {
+            self.config.language = new.language;
+            lang::set(new.language);
+            self.reload_phrases();
+        }
         self.companion.set_settings(new.companion.clone());
         if draft.autostart != config::autostart_enabled() {
             config::set_autostart(draft.autostart);
@@ -1381,8 +1400,10 @@ unsafe fn apply_theme(theme: config::Theme) {
 /// Hoje, para a memória e a conversa: "28/09, domingo".
 fn today() -> String {
     const WEEKDAYS: [&str; 7] = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+    const WEEKDAYS_EN: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     let (day, _, weekday) = unsafe { clock() };
-    format!("{:02}/{:02}, {}", day % 100, day / 100 % 100, WEEKDAYS[weekday as usize % 7])
+    let names = if lang::is_english() { WEEKDAYS_EN } else { WEEKDAYS };
+    format!("{:02}/{:02}, {}", day % 100, day / 100 % 100, names[weekday as usize % 7])
 }
 
 /// Sprite parado de um mascote (0xAARRGGBB), para o painel.
@@ -1410,7 +1431,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         name: app.art.name.clone(),
         pixels: idle_pixels(&app.art),
         hearts: app.companion.hearts(),
-        stats: companion::fill("Hoje: {juntos} juntos · {pausas}", &app.companion.stats, &app.art.name),
+        stats: companion::fill(tr("Hoje: {juntos} juntos · {pausas}"), &app.companion.stats, &app.art.name),
         mascots,
         current: packs.iter().position(|p| p.id == app.config.mascot).unwrap_or(usize::MAX),
         sizes: Size::ALL.map(Size::short),
@@ -1420,6 +1441,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         silenced: app.companion.silenced(secs),
         hidden: app.user_hidden,
         reminders_on: app.config.companion.reminders.iter().filter(|r| r.on).count(),
+        water: app.companion.stats.water,
         update: app.update.as_ref().map(|r| r.version.clone()),
     };
     flyout::open(hwnd, model, cursor());
@@ -1436,6 +1458,13 @@ unsafe fn run_action(hwnd: HWND, action: Action) {
         Action::Summary => {
             app.companion.stats.summary_shown = true;
             app.say(Topic::Summary);
+        }
+        Action::Water => {
+            if app.bubble.topic == Some(Topic::Water) {
+                app.hide_bubble(); // o lembrete que estava na tela já foi atendido
+            }
+            let reply = app.companion.drank_water();
+            app.say(reply);
         }
         Action::Pomodoro if app.companion.pomodoro_active() => app.companion.stop_pomodoro(),
         Action::Pomodoro => {

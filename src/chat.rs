@@ -24,6 +24,7 @@ use windows_sys::Win32::{
 
 use crate::{
     ai::json::quote,
+    lang,
     gfx::Canvas,
     mailbox,
     theme::{self, argb, icon},
@@ -52,6 +53,14 @@ thread_local! {
 pub type Turn = (bool, String);
 
 pub fn system_prompt(name: &str, about: &str, female: bool) -> String {
+    if lang::is_english() {
+        return format!(
+            "You are {name}, {about}. You live on the user's desktop as a virtual mascot and keep \
+             them company during the day. Always answer in English, in at most two short sentences \
+             (about 200 characters), with warmth, good humor and {name}'s personality. Don't use \
+             emojis, markdown or lists: your words show up in a tiny speech bubble."
+        );
+    }
     let gender = if female { " Fale de si mesma sempre no feminino." } else { "" };
     format!(
         "Você é {name}, {about}. Você vive na área de trabalho do usuário como mascote \
@@ -77,6 +86,12 @@ frame idle
 Regras: contorno escuro em volta do corpo; os pés encostam na última linha; o personagem \
 ocupa a maior parte da grade; olhos de 2 pixels de altura com a letra e; nada de texto na \
 grade.";
+
+/// O pedido de desenho, com o nome e a descrição no idioma atual.
+pub fn draw_prompt() -> String {
+    let language = if lang::is_english() { "\nWrite the name and the about line in English." } else { "" };
+    format!("{DRAW_PROMPT}{language}")
+}
 
 /// Monta o JSON que o plugin recebe (`max_tokens` opcional pede mais espaço na resposta).
 pub fn payload(system: &str, history: &[Turn], max_tokens: Option<u32>) -> String {

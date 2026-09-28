@@ -3,6 +3,16 @@
 use crate::rng::Rng;
 
 pub const EMBEDDED: &str = include_str!("../assets/phrases.txt");
+pub const EMBEDDED_EN: &str = include_str!("../assets/phrases_en.txt");
+
+/// Falas padrão embutidas, no idioma atual.
+pub fn embedded() -> &'static str {
+    if crate::lang::is_english() {
+        EMBEDDED_EN
+    } else {
+        EMBEDDED
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Topic {
@@ -145,13 +155,19 @@ mod tests {
     fn mascot_phrases_overlay_only_their_topics() {
         let mut p = Phrases::parse(EMBEDDED).unwrap();
         let before = p.lines[Topic::Water as usize].clone();
-        for (id, _, own) in crate::pack::EMBEDDED {
+        for (id, _, own, own_en) in crate::pack::EMBEDDED {
             let own = Phrases::parse_partial(own).unwrap_or_else(|e| panic!("{id}: {e}"));
+            Phrases::parse_partial(own_en).unwrap_or_else(|e| panic!("{id} (en): {e}"));
             p.overlay(&own);
         }
         assert_eq!(p.lines[Topic::Water as usize], before);
         // O último da lista (Jujubs) é quem vale no fim.
         assert!(p.lines[Topic::Pet as usize].iter().any(|l| l.contains("Rawr")));
+    }
+
+    #[test]
+    fn english_phrases_cover_every_topic() {
+        Phrases::parse(EMBEDDED_EN).unwrap();
     }
 
     #[test]

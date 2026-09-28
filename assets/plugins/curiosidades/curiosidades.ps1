@@ -17,5 +17,21 @@ $curiosidades = @(
     "piscar descansa os olhos. Que tal piscar bem devagar agora?"
 )
 
-$artigo = if ($pedido.feminino) { "da" } else { "do" }
-"Curiosidade $artigo $($pedido.mascote): $(Get-Random -InputObject $curiosidades)"
+# "idioma" é "pt" ou "en" (o idioma escolhido no app).
+if ($pedido.idioma -eq "en") {
+    $facts = @(
+        "an octopus has three hearts and blue blood.",
+        "sea otters hold hands while they sleep so they don't drift apart.",
+        "honey almost never spoils: edible honey was found in Egyptian tombs.",
+        "flamingos are pink because of what they eat.",
+        "an ordinary cloud can weigh more than 500 tons.",
+        "a hummingbird's heart can beat more than a thousand times a minute.",
+        "bananas are slightly radioactive, because of the potassium.",
+        "cats spend most of the day sleeping. I get them!",
+        "blinking rests your eyes. How about a slow blink right now?"
+    )
+    "$($pedido.mascote)'s fun fact: $(Get-Random -InputObject $facts)"
+} else {
+    $artigo = if ($pedido.feminino) { "da" } else { "do" }
+    "Curiosidade $artigo $($pedido.mascote): $(Get-Random -InputObject $curiosidades)"
+}

@@ -44,7 +44,7 @@
       "files": [
         {
           "path": "plugins/frase-do-dia/frase.ps1",
-          "sha256": "21e537b93a1153a95173af759f768412961952017fc117429987e25d297c615b"
+          "sha256": "41bf8dfd5017a636915bf9945b0b670288b09b69bd33e46795f590349c7316cf"
         },
         {
           "path": "plugins/frase-do-dia/plugin.ini",

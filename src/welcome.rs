@@ -28,6 +28,7 @@ use crate::{
     secret,
     sprite::{Frame, PIXELS},
     theme::{self, argb},
+    lang::{fill, tr},
     ui,
     win::{self, text_of, ui_font, w},
 };
@@ -139,7 +140,7 @@ pub unsafe fn open(owner: HWND, current: &str, icon: HICON) {
     let mut work: RECT = zeroed();
     SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut work as *mut RECT).cast(), 0);
     let (x, y) = (work.left + (work.right - work.left - ww) / 2, (work.top + (work.bottom - work.top - wh) / 2).max(work.top));
-    let hwnd = CreateWindowExW(0, class.as_ptr(), w("Bem-vindo — !StayAlone").as_ptr(), style, x, y, ww, wh, null_mut(), null_mut(), hinstance, null());
+    let hwnd = CreateWindowExW(0, class.as_ptr(), w(tr("Bem-vindo — !StayAlone")).as_ptr(), style, x, y, ww, wh, null_mut(), null_mut(), hinstance, null());
     if hwnd.is_null() {
         return;
     }
@@ -209,19 +210,19 @@ unsafe fn build(hwnd: HWND) {
     };
     // Interruptores e botões são desenhados aqui (`WM_DRAWITEM`).
     let button = BS_OWNERDRAW as u32 | WS_TABSTOP;
-    let labels = ["Lembrar de beber água (a cada 45 min)", "Lembrar de alongar (a cada 60 min)", "Lembrar de descansar os olhos (a cada 20 min)"];
+    let labels = [tr("Lembrar de beber água (a cada 45 min)"), tr("Lembrar de alongar (a cada 60 min)"), tr("Lembrar de descansar os olhos (a cada 20 min)")];
     for (i, label) in labels.into_iter().enumerate() {
         add(Some(1), "BUTTON", label, button, (44, 160 + i as i32 * 32, 440, 24), IDC_WATER + i as i32);
     }
-    add(Some(1), "BUTTON", "Abrir junto com o Windows", button, (44, 270, 440, 24), IDC_AUTOSTART);
+    add(Some(1), "BUTTON", tr("Abrir junto com o Windows"), button, (44, 270, 440, 24), IDC_AUTOSTART);
 
-    add(Some(2), "BUTTON", "Criar uma chave grátis", button, (44, 176, 200, 32), IDC_GETKEY);
+    add(Some(2), "BUTTON", tr("Criar uma chave grátis"), button, (44, 176, 200, 32), IDC_GETKEY);
     let key = add(Some(2), "EDIT", "", ES_AUTOHSCROLL as u32 | ES_PASSWORD as u32 | WS_TABSTOP, (44, 250, 330, 26), IDC_KEY);
-    SendMessageW(key, EM_SETCUEBANNER, 1, w("cole a chave aqui (opcional)").as_ptr() as LPARAM);
+    SendMessageW(key, EM_SETCUEBANNER, 1, w(tr("cole a chave aqui (opcional)")).as_ptr() as LPARAM);
     SendMessageW(key, EM_LIMITTEXT, 512, 0);
 
-    add(None, "BUTTON", "Voltar", button, (24, HEIGHT - 58, 110, 34), IDC_BACK);
-    add(None, "BUTTON", "Próximo", button, (WIDTH - 24 - 130, HEIGHT - 58, 130, 34), IDC_NEXT);
+    add(None, "BUTTON", tr("Voltar"), button, (24, HEIGHT - 58, 110, 34), IDC_BACK);
+    add(None, "BUTTON", tr("Próximo"), button, (WIDTH - 24 - 130, HEIGHT - 58, 130, 34), IDC_NEXT);
 }
 
 unsafe fn show_step(hwnd: HWND, step: usize) {
@@ -231,7 +232,7 @@ unsafe fn show_step(hwnd: HWND, step: usize) {
         ShowWindow(control, if p == st.step { SW_SHOW } else { SW_HIDE });
     }
     ShowWindow(GetDlgItem(hwnd, IDC_BACK), if st.step == 0 { SW_HIDE } else { SW_SHOW });
-    let next = if st.step == STEPS - 1 { "Começar!" } else { "Próximo" };
+    let next = if st.step == STEPS - 1 { tr("Começar!") } else { tr("Próximo") };
     SetWindowTextW(GetDlgItem(hwnd, IDC_NEXT), w(next).as_ptr());
     InvalidateRect(hwnd, null(), 0);
 }
@@ -255,7 +256,7 @@ unsafe fn paint(hwnd: HWND) {
     c.fill(0, 0, width, height, argb(theme::bg()));
     c.card((s(16), s(16), width - s(32), height - s(96)), s(14), argb(theme::card()), argb(theme::border()));
 
-    let (title, text) = TEXTS[st.step];
+    let (title, text) = (tr(TEXTS[st.step].0), tr(TEXTS[st.step].1));
     let left = DT_LEFT | DT_TOP | DT_WORDBREAK;
     c.text(st.title, title, RECT { left: s(44), top: s(36), right: width - s(44), bottom: s(72) }, theme::text(), left);
     c.text(st.font, text, RECT { left: s(44), top: s(80), right: width - s(44), bottom: s(140) }, theme::muted(), left);
@@ -278,19 +279,19 @@ unsafe fn paint(hwnd: HWND) {
                 c.text(font, &info.name, name_rect, if i == st.chosen { theme::accent() } else { theme::text() }, center);
             }
             let hint = RECT { left: s(44), top: s(300), right: width - s(44), bottom: s(340) };
-            c.text(st.font, "Dá para trocar depois pelo painel (botão direito no mascote).", hint, theme::muted(), DT_CENTER | DT_TOP | DT_WORDBREAK);
+            c.text(st.font, tr("Dá para trocar depois pelo painel (botão direito no mascote)."), hint, theme::muted(), DT_CENTER | DT_TOP | DT_WORDBREAK);
         }
         1 => {
             let tip = RECT { left: s(56), top: s(316), right: width - s(56), bottom: s(370) };
             c.round_rect(tip.left - s(12), tip.top - s(10), tip.right - tip.left + s(24), tip.bottom - tip.top + s(12), s(10), argb(theme::accent_soft()));
-            let text = "Dica: clique no mascote para fazer carinho, arraste para carregar e use o botão direito para abrir o painel.";
+            let text = tr("Dica: clique no mascote para fazer carinho, arraste para carregar e use o botão direito para abrir o painel.");
             c.text(st.font, text, tip, theme::text(), left);
         }
         _ => {
             let label = RECT { left: s(44), top: s(226), right: width - s(60), bottom: s(248) };
-            c.text(st.bold, "Cole a chave aqui", label, theme::text(), left);
+            c.text(st.bold, tr("Cole a chave aqui"), label, theme::text(), left);
             let hint = RECT { left: s(44), top: s(290), right: width - s(44), bottom: s(360) };
-            let text = "Ela fica no Gerenciador de Credenciais do Windows, nunca em arquivo. Pode pular: dá para fazer isso depois em Configurações → Conversa.";
+            let text = tr("Ela fica no Gerenciador de Credenciais do Windows, nunca em arquivo. Pode pular: dá para fazer isso depois em Configurações → Conversa.");
             c.text(st.font, text, hint, theme::muted(), left);
         }
     }
@@ -306,7 +307,7 @@ unsafe fn paint(hwnd: HWND) {
     EndPaint(hwnd, &ps);
 }
 
-/// "Próximo" no último passo (ou fechar): salva a chave e manda as escolhas ao app.
+/// tr("Próximo") no último passo (ou fechar): salva a chave e manda as escolhas ao app.
 unsafe fn finish(hwnd: HWND) -> bool {
     let Some(st) = state(hwnd) else { return true };
     let mut key = text_of(GetDlgItem(hwnd, IDC_KEY));
@@ -315,7 +316,7 @@ unsafe fn finish(hwnd: HWND) -> bool {
         key.as_bytes_mut().fill(0);
         if let Err(e) = saved {
             show_step(hwnd, 2);
-            MessageBoxW(hwnd, w(&format!("Não salvei a chave: {e}")).as_ptr(), w("!StayAlone").as_ptr(), MB_ICONINFORMATION);
+            MessageBoxW(hwnd, w(&fill(tr("Não salvei a chave: {}"), &[&e])).as_ptr(), w("!StayAlone").as_ptr(), MB_ICONINFORMATION);
             SetFocus(GetDlgItem(hwnd, IDC_KEY));
             return false;
         }

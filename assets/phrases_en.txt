@@ -1,0 +1,159 @@
+# !StayAlone — mascot lines (English)
+#
+# One line per row, grouped by [topic] (the topic names stay in Portuguese).
+# The mascot picks one at random (never the same twice in a row).
+# Lines starting with '#' are comments.
+#
+# Any line can use {nome} (the mascot's name). In [resumo]:
+#   {juntos}  time you spent together today (e.g. 3h12min)
+#   {pausas}  e.g. "2 breaks" / "no breaks"
+#   {agua}    e.g. "3 glasses" / "no water"
+#
+# Each mascot can have its own lines (phrases_en.txt in its folder),
+# which replace these only in the topics it defines.
+#
+# Tip: put an edited copy named "phrases_en.txt" next to
+# dontStayAlone.exe to change the default lines without recompiling.
+
+[bom_dia]
+Good morning! Let's take it easy today.
+Good morning! Had your coffee yet?
+Good mooorning! So nice to see you.
+
+[boa_tarde]
+Good afternoon! I'm right here with you.
+Hi! Good afternoon!
+Good afternoon! Let's have a calm one.
+
+[boa_noite]
+Good evening! I'll stick around.
+Hi! Good evening!
+Good evening! Don't stay up too late, okay?
+
+[madrugada]
+Still up at this hour? I'm with you.
+Late night, huh? That makes two of us.
+
+[voltou]
+You're back! Yay!
+Oh, you're back!
+Company again, hooray!
+I missed you a little.
+
+[saudade]
+You disappeared! I missed you.
+Finally! I thought you forgot about me.
+I missed you so much! All good?
+
+[agua]
+Time to drink water! Click me when you do.
+A sip of water? Click me after.
+Hydration! Drink some water and click me.
+
+[alongar]
+How about stretching your back a bit?
+Get up for a minute and stretch!
+Time to move your body. Just a little!
+
+[olhos]
+Look at something far away for 20 seconds.
+Rest your eyes for a moment.
+Blink a lot and look out the window for a bit.
+
+[meia_noite]
+It's past midnight... how about some rest?
+It's late! You can keep going tomorrow.
+Sleep is productive too, you know?
+
+[carinho]
+Hehe!
+Hi!
+That's nice!
+More!
+Hey, that tickles!
+
+[carinho_muito]
+I really like you! ♥
+You're my favorite person.
+♥ ♥ ♥
+Best company ever!
+
+[obrigado]
+That's it!
+Nice job!
+Great! I'm proud of you.
+Your body thanks you!
+
+[pomodoro_inicio]
+Pomodoro started! 25 minutes of focus.
+Full focus! I'll let you know in 25 minutes.
+
+[pomodoro_pausa]
+Break time! 5 minutes to breathe.
+Focus is over! Rest for 5 minutes.
+
+[pomodoro_volta]
+Ready to go back? 25 more minutes!
+Break's over! Here we go again.
+
+[resumo]
+We spent {juntos} together today! You took {pausas} and drank {agua}.
+Today: {juntos} together, {pausas}, {agua}.
+
+[silencio]
+Okay, I'll be quiet for an hour.
+Shhh... Silence for an hour.
+
+[ola]
+Hi! I'm {nome}!
+{nome} is here!
+
+[petisco]
+Mmm, delicious!
+Thanks for the snack!
+*nom nom*
+
+[cheio]
+I'm full! Later, okay?
+Thanks, but my belly is still full.
+
+[bolinha_fim]
+I'm tired! Thanks for playing!
+Phew! That was fun.
+
+[bateria_baixa]
+The battery is running out... got a charger?
+I'm running out of energy! Low battery.
+
+[carregando]
+Ahh, energy! Thank you!
+Charging... what a relief!
+
+[digitando]
+Wow, you're flying on that keyboard!
+Such focus! I'm rooting for you.
+So much to do! Go for it!
+
+[aniversario]
+Happy birthday!! Today is all yours!
+Happy birthday! May your year be amazing. I'm so happy to be here with you!
+It's your day! Can I have a piece of cake?
+
+[segunda]
+Monday! Let's take it easy, one step at a time.
+Have a good start of the week! I'm here with you.
+Monday again? We've got this!
+
+[sexta]
+It's Friday! The weekend is almost here!
+Friday! How about closing the week calmly?
+It's Friday! You did great this week.
+
+[fim_de_semana]
+Using the PC on the weekend? Don't forget to rest too!
+Weekends are for enjoying. How about a break outside?
+
+[sem_pausa]
+You haven't stopped for about 3 hours. How about a real break?
+Three hours straight! Get up a little, drink some water, come back refreshed.
+Hey, you haven't stopped in a while. Your eyes and back would love a break!

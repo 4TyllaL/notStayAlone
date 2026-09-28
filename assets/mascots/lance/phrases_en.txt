@@ -1,0 +1,30 @@
+# Lance's own lines in English (only the topics that change).
+
+[ola]
+Woof woof! I'm Lance!
+Woof! Lance is here!
+
+[voltou]
+WOOF WOOF! You're back!
+*wags tail nonstop*
+You're back! You're back! You're back!
+
+[carinho]
+Woof woof!
+*wags tail*
+Woof! More pets!
+*lick*
+
+[carinho_muito]
+You're the best human in the world! ♥
+*wags tail so hard he falls over*
+Woof woof! ♥
+
+[petisco]
+A bone! Woof woof!
+BONE! Thank you!
+*chew chew* Woof!
+
+[bolinha_fim]
+Woof... I'm tired! Thanks for playing!
+Again later? Woof woof!

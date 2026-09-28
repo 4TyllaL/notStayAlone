@@ -19,7 +19,9 @@ use windows_sys::Win32::{
 
 use crate::{
     ai::json::{self, Json},
-    child, net, sha256,
+    child,
+    lang::{fill, tr},
+    net, sha256,
 };
 
 pub const ARG_CHECK: &str = "--procurar-versao";
@@ -99,11 +101,11 @@ fn parse_release(api: &Json) -> Option<Release> {
 pub fn serve_check() -> i32 {
     let found = net::get(LATEST_API, "application/vnd.github+json", MAX_API).and_then(|(status, body)| match status {
         200 => {
-            let text = String::from_utf8(body).map_err(|_| "resposta inválida".to_string())?;
+            let text = String::from_utf8(body).map_err(|_| tr("resposta inválida").to_string())?;
             Ok(parse_release(&json::parse(&text)?))
         }
         404 => Ok(None), // ainda sem releases
-        other => Err(format!("GitHub respondeu HTTP {other}")),
+        other => Err(fill(tr("GitHub respondeu HTTP {}"), &[&other])),
     });
     report(found.map(|release| release.map(|r| r.to_line()).unwrap_or_default()))
 }
@@ -128,18 +130,18 @@ fn report(result: Result<String, String>) -> i32 {
 }
 
 fn download(line: &str) -> Result<PathBuf, String> {
-    let release = Release::from_line(line).ok_or("endereço de atualização recusado")?;
+    let release = Release::from_line(line).ok_or(tr("endereço de atualização recusado"))?;
     let (status, bytes) = net::get(&release.url, "application/octet-stream", MAX_EXE)?;
     if status != 200 {
-        return Err(format!("o download falhou (HTTP {status})"));
+        return Err(fill(tr("o download falhou (HTTP {})"), &[&status]));
     }
     if sha256::hex(&bytes) != release.sha256 {
-        return Err("o arquivo baixado não confere com o da release (SHA-256)".into());
+        return Err(tr("o arquivo baixado não confere com o da release (SHA-256)").into());
     }
     if !bytes.starts_with(b"MZ") {
-        return Err("o arquivo baixado não é um programa do Windows".into());
+        return Err(tr("o arquivo baixado não é um programa do Windows").into());
     }
-    let dir = folder().ok_or("sem pasta de dados")?;
+    let dir = folder().ok_or(tr("sem pasta de dados"))?;
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let (part, done) = (dir.join(format!("{ASSET}.part")), dir.join(ASSET));
     fs::write(&part, &bytes).map_err(|e| e.to_string())?;
@@ -170,16 +172,16 @@ pub fn install(downloaded: &str) -> Result<(), String> {
     let downloaded = PathBuf::from(downloaded);
     let expected = folder().map(|d| d.join(ASSET));
     if expected.as_ref() != Some(&downloaded) {
-        return Err("arquivo de atualização fora do lugar esperado".into());
+        return Err(tr("arquivo de atualização fora do lugar esperado").into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let old = exe.with_extension("old.exe");
     let _ = fs::remove_file(&old);
     // O Windows deixa renomear um .exe em uso, mas não sobrescrevê-lo.
-    fs::rename(&exe, &old).map_err(|e| format!("não consegui trocar o programa nesta pasta ({e})"))?;
+    fs::rename(&exe, &old).map_err(|e| fill(tr("não consegui trocar o programa nesta pasta ({})"), &[&e]))?;
     if let Err(e) = fs::copy(&downloaded, &exe) {
         let _ = fs::rename(&old, &exe); // desfaz
-        return Err(format!("não consegui instalar a versão nova ({e})"));
+        return Err(fill(tr("não consegui instalar a versão nova ({})"), &[&e]));
     }
     let _ = fs::remove_file(&downloaded);
     let pid = std::process::id().to_string();

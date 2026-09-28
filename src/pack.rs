@@ -5,34 +5,51 @@
 
 use std::{fs, path::PathBuf};
 
-use crate::{config::read_file, sprite::Art};
+use crate::{
+    config::read_file,
+    lang::{self, tr},
+    sprite::Art,
+};
 
 /// Falas no feminino, aplicadas a mascotes com `article a`.
 pub const FEMININE: &str = include_str!("../assets/phrases_feminine.txt");
 
-/// (id, sprites, falas próprias)
-pub const EMBEDDED: [(&str, &str, &str); 4] = [
+/// (id, sprites, falas próprias, falas próprias em inglês)
+pub const EMBEDDED: [(&str, &str, &str, &str); 4] = [
     (
         "calcifer",
         include_str!("../assets/mascots/calcifer/mascot.txt"),
         include_str!("../assets/mascots/calcifer/phrases.txt"),
+        include_str!("../assets/mascots/calcifer/phrases_en.txt"),
     ),
     (
         "lance",
         include_str!("../assets/mascots/lance/mascot.txt"),
         include_str!("../assets/mascots/lance/phrases.txt"),
+        include_str!("../assets/mascots/lance/phrases_en.txt"),
     ),
     (
         "zeze",
         include_str!("../assets/mascots/zeze/mascot.txt"),
         include_str!("../assets/mascots/zeze/phrases.txt"),
+        include_str!("../assets/mascots/zeze/phrases_en.txt"),
     ),
     (
         "jujubs",
         include_str!("../assets/mascots/jujubs/mascot.txt"),
         include_str!("../assets/mascots/jujubs/phrases.txt"),
+        include_str!("../assets/mascots/jujubs/phrases_en.txt"),
     ),
 ];
+
+/// Nome do arquivo de falas no idioma atual.
+pub fn phrases_file() -> &'static str {
+    if lang::is_english() {
+        "phrases_en.txt"
+    } else {
+        "phrases.txt"
+    }
+}
 
 pub const DEFAULT: &str = "calcifer";
 /// Quantos mascotes cabem no menu (os ids do menu reservam 100 posições).
@@ -70,7 +87,7 @@ fn read_name(src: &str) -> Option<String> {
 pub fn list() -> Vec<PackInfo> {
     let mut packs: Vec<PackInfo> = EMBEDDED
         .iter()
-        .map(|(id, src, _)| PackInfo { id: id.to_string(), name: read_name(src).unwrap_or(id.to_string()), dir: None })
+        .map(|(id, src, ..)| PackInfo { id: id.to_string(), name: read_name(src).unwrap_or(id.to_string()), dir: None })
         .collect();
     for root in search_dirs() {
         let Ok(entries) = fs::read_dir(&root) else { continue };
@@ -93,12 +110,13 @@ pub fn list() -> Vec<PackInfo> {
 pub fn load(info: &PackInfo) -> Result<Pack, String> {
     let (sprites, phrases) = match &info.dir {
         None => {
-            let (_, sprites, phrases) = EMBEDDED.iter().find(|(id, ..)| *id == info.id).ok_or("mascote não encontrado")?;
-            (sprites.to_string(), Some(phrases.to_string()))
+            let (_, sprites, pt, en) = EMBEDDED.iter().find(|(id, ..)| *id == info.id).ok_or(tr("mascote não encontrado"))?;
+            (sprites.to_string(), Some(if lang::is_english() { en } else { pt }.to_string()))
         }
         Some(dir) => {
-            let sprites = read_file(&dir.join("mascot.txt")).ok_or("mascot.txt não abriu (ou passa de 256 KB)")?;
-            (sprites, read_file(&dir.join("phrases.txt")))
+            let sprites = read_file(&dir.join("mascot.txt")).ok_or(tr("mascot.txt não abriu (ou passa de 256 KB)"))?;
+            // Em inglês, só as falas próprias em inglês (sem elas, ficam as padrão).
+            (sprites, read_file(&dir.join(phrases_file())))
         }
     };
     let art = Art::parse(&sprites).map_err(|e| format!("mascot.txt: {e}"))?;
@@ -123,7 +141,7 @@ pub fn prepare_user_dir() -> Option<PathBuf> {
              mascote embutido (calcifer, lance, zeze, jujubs) o substitui.\r\n\r\n\
              Mascotes embutidos, para servir de modelo:\r\n",
         );
-        for (id, sprites, _) in EMBEDDED {
+        for (id, sprites, ..) in EMBEDDED {
             let _ = fs::write(dir.join(format!("_modelo_{id}.txt")), sprites);
             text += &format!("  _modelo_{id}.txt\r\n");
         }

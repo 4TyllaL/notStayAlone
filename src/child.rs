@@ -12,7 +12,10 @@ use std::{
 
 use windows_sys::Win32::Foundation::HWND;
 
-use crate::mailbox;
+use crate::{
+    lang::{fill, tr},
+    mailbox,
+};
 
 /// Resposta de um processo filho: o texto do stdout, ou a mensagem de erro.
 pub type Reply = Result<String, String>;
@@ -50,7 +53,7 @@ pub fn run(mut command: Command, input: &str, max_output: u64) -> Reply {
         .stderr(Stdio::piped())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
-        .map_err(|e| format!("não consegui abrir o programa ({e})"))?;
+        .map_err(|e| fill(tr("não consegui abrir o programa ({})"), &[&e]))?;
     // Lê as saídas em paralelo e com limite: o filho nunca trava escrevendo
     // e não consegue encher a memória do app.
     let stdout = drain(child.stdout.take(), max_output);
@@ -61,11 +64,11 @@ pub fn run(mut command: Command, input: &str, max_output: u64) -> Reply {
     let status = wait(&mut child, TIMEOUT);
     let (out, err) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
     match status {
-        None => Err("demorou demais e foi encerrado.".into()),
+        None => Err(tr("demorou demais e foi encerrado.").into()),
         Some(s) if s.success() => Ok(String::from_utf8_lossy(&out).trim().trim_start_matches('\u{feff}').to_string()),
         Some(_) => {
             let err = String::from_utf8_lossy(&err).trim().to_string();
-            Err(if err.is_empty() { "o programa falhou".into() } else { err })
+            Err(if err.is_empty() { tr("o programa falhou").into() } else { err })
         }
     }
 }

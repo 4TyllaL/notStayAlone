@@ -32,7 +32,10 @@ use windows_sys::{
     },
 };
 
-use crate::win::w as wide;
+use crate::{
+    lang::{fill, tr},
+    win::w as wide,
+};
 
 /// Respostas da IA maiores que isso são recusadas: uma conversa tem 1–3 KB (o
 /// balão mostra 350 caracteres) e um desenho da IA, uns 4 KB.
@@ -59,7 +62,7 @@ impl WinHttp {
     unsafe fn load() -> Result<WinHttp, String> {
         let lib = LoadLibraryExW(wide("winhttp.dll").as_ptr(), null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32);
         if lib.is_null() {
-            return Err("não encontrei o WinHTTP do Windows.".into());
+            return Err(tr("não encontrei o WinHTTP do Windows.").into());
         }
         let find = |name: &str| -> Result<unsafe extern "system" fn() -> isize, String> {
             let name = format!("{name}\0");
@@ -126,19 +129,19 @@ pub fn parse_url(url: &str) -> Result<Url<'_>, String> {
     } else if let Some(r) = url.strip_prefix("http://") {
         (false, r)
     } else {
-        return Err("o endereço precisa começar com https://".into());
+        return Err(tr("o endereço precisa começar com https://").into());
     };
     let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
     let (host, port) = match authority.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(':') => (h, p.parse::<u16>().map_err(|_| "porta inválida no endereço".to_string())?),
+        Some((h, p)) if !h.ends_with(':') => (h, p.parse::<u16>().map_err(|_| tr("porta inválida no endereço").to_string())?),
         _ => (authority, if secure { 443 } else { 80 }),
     };
     if host.is_empty() || host.contains('@') {
-        return Err("endereço inválido".into());
+        return Err(tr("endereço inválido").into());
     }
     // Sem criptografia, só dentro do próprio PC: a chave nunca atravessa a rede aberta.
     if !secure && !matches!(host.to_ascii_lowercase().as_str(), "localhost" | "127.0.0.1" | "[::1]") {
-        return Err("por segurança, http:// só é aceito para serviços no seu PC (use https://).".into());
+        return Err(tr("por segurança, http:// só é aceito para serviços no seu PC (use https://).").into());
     }
     Ok(Url { secure, host: host.trim_start_matches('[').trim_end_matches(']'), port, path: if path.is_empty() { "/" } else { path } })
 }
@@ -161,7 +164,7 @@ pub fn post(url: &str, key: Option<&str>, body: &str) -> Result<(u32, String), S
 /// GET público de até `max` bytes (só HTTPS); devolve (status HTTP, corpo).
 pub fn get(url: &str, accept: &str, max: usize) -> Result<(u32, Vec<u8>), String> {
     if !url.starts_with("https://") {
-        return Err("downloads só por https://".into());
+        return Err(tr("downloads só por https://").into());
     }
     let headers = format!("Accept: {accept}
 ");
@@ -225,7 +228,7 @@ fn send(method: &str, url: &str, headers: &str, body: &[u8], follow: bool, max: 
                 break;
             }
             if out.len() + available as usize > max {
-                return Err("a resposta do servidor veio grande demais.".into());
+                return Err(tr("a resposta do servidor veio grande demais.").into());
             }
             let start = out.len();
             out.resize(start + available as usize, 0);
@@ -245,10 +248,10 @@ unsafe fn set_u32(api: &WinHttp, handle: Handle, option: u32, value: u32) -> boo
 
 fn net_error() -> String {
     match unsafe { GetLastError() } {
-        12002 => "o servidor demorou demais para responder.".into(),
-        12007 | 12029 => "sem conexão com a internet (ou com o servidor).".into(),
-        12175 | 12157 | 12045 | 12038 | 12037 => "falha na conexão segura (HTTPS): certificado ou protocolo recusado.".into(),
-        code => format!("erro de rede {code}."),
+        12002 => tr("o servidor demorou demais para responder.").into(),
+        12007 | 12029 => tr("sem conexão com a internet (ou com o servidor).").into(),
+        12175 | 12157 | 12045 | 12038 | 12037 => tr("falha na conexão segura (HTTPS): certificado ou protocolo recusado.").into(),
+        code => fill(tr("erro de rede {}."), &[&code]),
     }
 }
 

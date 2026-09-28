@@ -37,6 +37,7 @@ use crate::{
     gallery,
     pack::{self, PackInfo},
     child::Reply,
+    lang::{fill, tr},
     plugins::{self, Enabled, Kind as PluginKind, Plugin, Status},
     secret::{self, KeySource},
     gfx::Canvas,
@@ -270,7 +271,7 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
     let hwnd = CreateWindowExW(
         0,
         w("StayAloneSettings").as_ptr(),
-        w("Configurações — !StayAlone").as_ptr(),
+        w(tr("Configurações — !StayAlone")).as_ptr(),
         style,
         x,
         y,
@@ -441,91 +442,91 @@ unsafe fn build(hwnd: HWND) {
     }
 
     // --- Geral
-    section!(0, "Seu mascote", 116);
-    label!(0, "Mascote", x0, 146, 170);
+    section!(0, tr("Seu mascote"), 116);
+    label!(0, tr("Mascote"), x0, 146, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 144, 196, 300), IDC_MASCOT);
-    add(Some(0), "BUTTON", "Abrir pasta", button, 0, (cx + 204, 142, 96, 28), IDC_MODS);
-    label!(0, "Amigo na tela", x0, 180, 170);
+    add(Some(0), "BUTTON", tr("Abrir pasta"), button, 0, (cx + 204, 142, 96, 28), IDC_MODS);
+    label!(0, tr("Amigo na tela"), x0, 180, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 178, cw, 300), IDC_BUDDY);
-    label!(0, "Tamanho", x0, 214, 170);
+    label!(0, tr("Tamanho"), x0, 214, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 212, cw, 200), IDC_SIZE);
-    label!(0, "Velocidade ao andar", x0, 248, 170);
+    label!(0, tr("Velocidade ao andar"), x0, 248, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 246, cw, 200), IDC_SPEED);
-    section!(0, "Comportamento", 304);
-    label!(0, "Considerar ausente após", x0, 334, 170);
+    section!(0, tr("Comportamento"), 304);
+    label!(0, tr("Considerar ausente após"), x0, 334, 170);
     add(Some(0), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx, 332, 50, 24), IDC_AWAY);
-    label!(0, "min sem usar o PC", cx + 58, 334, 200);
-    label!(0, "Seu aniversário", x0, 368, 170);
+    label!(0, tr("min sem usar o PC"), cx + 58, 334, 200);
+    label!(0, tr("Seu aniversário"), x0, 368, 170);
     let birthday = add(Some(0), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 366, 70, 24), IDC_BIRTHDAY);
     SendMessageW(birthday, EM_SETCUEBANNER, 1, w("dd/mm").as_ptr() as LPARAM);
     limit(birthday, 5);
-    label!(0, "o mascote comemora com você", cx + 78, 368, 230);
+    label!(0, tr("o mascote comemora com você"), cx + 78, 368, 230);
     let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
-    add(Some(0), "BUTTON", "Iniciar junto com o Windows", check, 0, (x0, 402, 400, 22), IDC_AUTOSTART);
-    add(Some(0), "BUTTON", "Procurar versões novas (uma vez por dia, no GitHub)", check, 0, (x0, 430, 440, 22), IDC_UPDATES);
-    add(Some(0), "BUTTON", "Ficar quieto em reuniões (Teams, Zoom, Webex...)", check, 0, (x0, 458, 440, 22), IDC_MEETINGS);
-    hint!(0, "Ele olha só o nome do programa aberto, nunca o que está na tela.", 484, 20);
-    section!(0, "Aparência", 532);
-    label!(0, "Tema", x0, 562, 170);
+    add(Some(0), "BUTTON", tr("Iniciar junto com o Windows"), check, 0, (x0, 402, 400, 22), IDC_AUTOSTART);
+    add(Some(0), "BUTTON", tr("Procurar versões novas (uma vez por dia, no GitHub)"), check, 0, (x0, 430, 440, 22), IDC_UPDATES);
+    add(Some(0), "BUTTON", tr("Ficar quieto em reuniões (Teams, Zoom, Webex...)"), check, 0, (x0, 458, 440, 22), IDC_MEETINGS);
+    hint!(0, tr("Ele olha só o nome do programa aberto, nunca o que está na tela."), 484, 20);
+    section!(0, tr("Aparência"), 532);
+    label!(0, tr("Tema"), x0, 562, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 560, cw, 200), IDC_THEME);
-    label!(0, "Idioma", x0, 596, 170);
+    label!(0, tr("Idioma"), x0, 596, 170);
     add(Some(0), "COMBOBOX", "", combo, 0, (cx, 594, cw, 200), IDC_LANGUAGE);
 
     // --- Lembretes
-    section!(1, "Seus lembretes", 116);
-    hint!(1, "Marque para ativar. Eles contam só o tempo em que você está usando o PC.", 140, 20);
+    section!(1, tr("Seus lembretes"), 116);
+    hint!(1, tr("Marque para ativar. Eles contam só o tempo em que você está usando o PC."), 140, 20);
     let list_style = LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_TABSTOP;
     let list = add(Some(1), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 166, CONTENT - 2 * x0, 250), IDC_LIST);
     let ex = LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER;
     SendMessageW(list, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as WPARAM, ex as LPARAM);
-    add_columns(list, &[("Lembrete", CONTENT - 2 * x0 - 110), ("A cada", 86)], dpi);
-    label!(1, "Texto", x0, 432, 48);
+    add_columns(list, &[(tr("Lembrete"), CONTENT - 2 * x0 - 110), (tr("A cada"), 86)], dpi);
+    label!(1, tr("Texto"), x0, 432, 48);
     let text = add(Some(1), "EDIT", "", edit, WS_EX_CLIENTEDGE, (x0 + 50, 430, 256, 24), IDC_TEXT);
-    SendMessageW(text, EM_SETCUEBANNER, 1, w("Ex.: Conferir o e-mail").as_ptr() as LPARAM);
+    SendMessageW(text, EM_SETCUEBANNER, 1, w(tr("Ex.: Conferir o e-mail")).as_ptr() as LPARAM);
     limit(text, MAX_REMINDER_TEXT);
-    label!(1, "a cada", x0 + 316, 432, 46);
+    label!(1, tr("a cada"), x0 + 316, 432, 46);
     add(Some(1), "EDIT", "30", number, WS_EX_CLIENTEDGE, (x0 + 364, 430, 48, 24), IDC_MINUTES);
     label!(1, "min", x0 + 418, 432, 40);
-    add(Some(1), "BUTTON", "Adicionar", button, 0, (x0, 468, 110, 30), IDC_ADD);
-    add(Some(1), "BUTTON", "Salvar alteração", button, 0, (x0 + 118, 468, 140, 30), IDC_UPDATE);
-    add(Some(1), "BUTTON", "Remover", button, 0, (x0 + 266, 468, 100, 30), IDC_REMOVE);
+    add(Some(1), "BUTTON", tr("Adicionar"), button, 0, (x0, 468, 110, 30), IDC_ADD);
+    add(Some(1), "BUTTON", tr("Salvar alteração"), button, 0, (x0 + 118, 468, 140, 30), IDC_UPDATE);
+    add(Some(1), "BUTTON", tr("Remover"), button, 0, (x0 + 266, 468, 100, 30), IDC_REMOVE);
 
     // --- Conversa
-    section!(2, "Conversar com o mascote", 116);
-    hint!(2, "Serviços no padrão da API da OpenAI. Sem chave, nada sai do seu PC.", 140, 20);
-    label!(2, "Serviço", x0, 172, 170);
+    section!(2, tr("Conversar com o mascote"), 116);
+    hint!(2, tr("Serviços no padrão da API da OpenAI. Sem chave, nada sai do seu PC."), 140, 20);
+    label!(2, tr("Serviço"), x0, 172, 170);
     add(Some(2), "COMBOBOX", "", combo, 0, (cx, 170, cw, 240), IDC_PROVIDER);
-    label!(2, "Endereço da API", x0, 206, 170);
+    label!(2, tr("Endereço da API"), x0, 206, 170);
     let base = add(Some(2), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 204, cw, 24), IDC_BASE);
     limit(base, 300);
-    label!(2, "Modelo", x0, 240, 170);
+    label!(2, tr("Modelo"), x0, 240, 170);
     let model = add(Some(2), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 238, cw, 24), IDC_MODEL);
     limit(model, 100);
-    label!(2, "Nome da chave", x0, 274, 170);
+    label!(2, tr("Nome da chave"), x0, 274, 170);
     let key_name = add(Some(2), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 272, cw, 24), IDC_KEYENV);
     limit(key_name, 64);
-    section!(2, "Chave da API", 330);
-    label!(2, "Colar a chave", x0, 358, 170);
+    section!(2, tr("Chave da API"), 330);
+    label!(2, tr("Colar a chave"), x0, 358, 170);
     let key = add(Some(2), "EDIT", "", edit | ES_PASSWORD as u32, WS_EX_CLIENTEDGE, (cx, 356, 180, 24), IDC_KEY);
-    SendMessageW(key, EM_SETCUEBANNER, 1, w("cole aqui para salvar").as_ptr() as LPARAM);
+    SendMessageW(key, EM_SETCUEBANNER, 1, w(tr("cole aqui para salvar")).as_ptr() as LPARAM);
     limit(key, 512);
-    add(Some(2), "BUTTON", "Remover chave", button, 0, (cx + 188, 354, 112, 28), IDC_KEY_REMOVE);
+    add(Some(2), "BUTTON", tr("Remover chave"), button, 0, (cx + 188, 354, 112, 28), IDC_KEY_REMOVE);
     add(Some(2), "STATIC", "", 0, 0, (cx, 388, 180, 20), IDC_KEY_STATUS);
-    add(Some(2), "BUTTON", "Criar chave", button, 0, (cx + 188, 384, 112, 28), IDC_GETKEY);
+    add(Some(2), "BUTTON", tr("Criar chave"), button, 0, (cx + 188, 384, 112, 28), IDC_GETKEY);
     hint!(
         2,
-        "Fica no Gerenciador de Credenciais do Windows, protegida pela sua conta, e só vai por HTTPS ao serviço escolhido.",
+        tr("Fica no Gerenciador de Credenciais do Windows, protegida pela sua conta, e só vai por HTTPS ao serviço escolhido."),
         418,
         40
     );
-    add(Some(2), "BUTTON", "Testar conversa", button, 0, (x0, 464, 140, 30), IDC_TEST);
+    add(Some(2), "BUTTON", tr("Testar conversa"), button, 0, (x0, 464, 140, 30), IDC_TEST);
     add(Some(2), "STATIC", "", 0, 0, (x0 + 150, 462, CONTENT - 2 * x0 - 150, 40), IDC_TEST_RESULT);
-    section!(2, "Memória", 532);
+    section!(2, tr("Memória"), 532);
     let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
-    add(Some(2), "BUTTON", "Lembrar do que eu contar na conversa (fica só neste PC)", check, 0, (x0, 558, 460, 22), IDC_MEMORY);
+    add(Some(2), "BUTTON", tr("Lembrar do que eu contar na conversa (fica só neste PC)"), check, 0, (x0, 558, 460, 22), IDC_MEMORY);
     add(Some(2), "STATIC", "", 0, 0, (x0, 590, 200, 20), IDC_MEMORY_STATUS);
-    add(Some(2), "BUTTON", "Ver e editar", button, 0, (x0 + 206, 584, 118, 30), IDC_MEMORY_OPEN);
-    add(Some(2), "BUTTON", "Esquecer tudo", button, 0, (x0 + 332, 584, 124, 30), IDC_MEMORY_CLEAR);
+    add(Some(2), "BUTTON", tr("Ver e editar"), button, 0, (x0 + 206, 584, 118, 30), IDC_MEMORY_OPEN);
+    add(Some(2), "BUTTON", tr("Esquecer tudo"), button, 0, (x0 + 332, 584, 124, 30), IDC_MEMORY_CLEAR);
 
     // --- Criar mascote
     card!(3, 118);
@@ -536,7 +537,7 @@ unsafe fn build(hwnd: HWND) {
     add(
         Some(3),
         "STATIC",
-        "Clique pinta • botão direito apaga • duplo clique numa cor troca a cor. A cor com ponto branco são os olhos.",
+        tr("Clique pinta • botão direito apaga • duplo clique numa cor troca a cor. A cor com ponto branco são os olhos."),
         0,
         0,
         (x0, 118 + grid + 10 + 2 * (SWATCH + SWATCH_GAP) + 2, grid, 62),
@@ -544,82 +545,82 @@ unsafe fn build(hwnd: HWND) {
     );
     let xr = x0 + grid + 20;
     let rw = CONTENT - x0 - xr;
-    label!(3, "Nome", xr, 116, rw);
+    label!(3, tr("Nome"), xr, 116, rw);
     let name = add(Some(3), "EDIT", "", edit, WS_EX_CLIENTEDGE, (xr, 138, rw, 24), IDC_NAME);
     limit(name, 32);
-    label!(3, "Quem é (personalidade)", xr, 170, rw);
+    label!(3, tr("Quem é (personalidade)"), xr, 170, rw);
     let about = add(Some(3), "EDIT", "", edit, WS_EX_CLIENTEDGE, (xr, 192, rw, 24), IDC_ABOUT);
-    SendMessageW(about, EM_SETCUEBANNER, 1, w("Ex.: um polvo roxo curioso").as_ptr() as LPARAM);
+    SendMessageW(about, EM_SETCUEBANNER, 1, w(tr("Ex.: um polvo roxo curioso")).as_ptr() as LPARAM);
     limit(about, 200);
     label!(3, "É", xr, 224, rw);
     add(Some(3), "COMBOBOX", "", combo, 0, (xr, 246, rw, 120), IDC_PRONOUN);
-    label!(3, "Começar a partir de", xr, 278, rw);
+    label!(3, tr("Começar a partir de"), xr, 278, rw);
     add(Some(3), "COMBOBOX", "", combo, 0, (xr, 300, rw, 300), IDC_TEMPLATE);
     let half = (rw - 8) / 2;
-    add(Some(3), "BUTTON", "Limpar", button, 0, (xr, 338, half, 30), IDC_CLEAR);
-    add(Some(3), "BUTTON", "Espelhar", button, 0, (xr + half + 8, 338, half, 30), IDC_MIRROR);
-    add(Some(3), "BUTTON", "Salvar e usar", button, 0, (xr, 376, rw, 34), IDC_SAVE_MASCOT);
-    label!(3, "Pose que você está desenhando", xr, 418, rw);
+    add(Some(3), "BUTTON", tr("Limpar"), button, 0, (xr, 338, half, 30), IDC_CLEAR);
+    add(Some(3), "BUTTON", tr("Espelhar"), button, 0, (xr + half + 8, 338, half, 30), IDC_MIRROR);
+    add(Some(3), "BUTTON", tr("Salvar e usar"), button, 0, (xr, 376, rw, 34), IDC_SAVE_MASCOT);
+    label!(3, tr("Pose que você está desenhando"), xr, 418, rw);
     add(Some(3), "COMBOBOX", "", combo, 0, (xr, 440, rw, 200), IDC_POSE);
     add(
         Some(3),
         "STATIC",
-        "Poses em branco são criadas sozinhas a partir da pose parada (piscar, dormir, andar, pular).",
+        tr("Poses em branco são criadas sozinhas a partir da pose parada (piscar, dormir, andar, pular)."),
         0,
         0,
         (xr, 474, rw, 60),
         IDC_HINT,
     );
-    section!(3, "Ou peça para a IA desenhar", 552);
+    section!(3, tr("Ou peça para a IA desenhar"), 552);
     let ai = add(Some(3), "EDIT", "", edit, WS_EX_CLIENTEDGE, (x0, 578, 372, 26), IDC_AI_TEXT);
-    SendMessageW(ai, EM_SETCUEBANNER, 1, w("Ex.: um polvo roxo de chapéu de marinheiro").as_ptr() as LPARAM);
+    SendMessageW(ai, EM_SETCUEBANNER, 1, w(tr("Ex.: um polvo roxo de chapéu de marinheiro")).as_ptr() as LPARAM);
     limit(ai, 300);
-    add(Some(3), "BUTTON", "Criar com IA", button, 0, (x0 + 380, 576, CONTENT - 2 * x0 - 380, 30), IDC_AI_GO);
+    add(Some(3), "BUTTON", tr("Criar com IA"), button, 0, (x0 + 380, 576, CONTENT - 2 * x0 - 380, 30), IDC_AI_GO);
     add(Some(3), "STATIC", "", 0, 0, (x0, 610, CONTENT - 2 * x0, 20), IDC_AI_STATUS);
 
     // --- Plugins
-    section!(4, "Plugins instalados", 116);
+    section!(4, tr("Plugins instalados"), 116);
     hint!(
         4,
-        "Programas que dão novos poderes ao mascote. Plugins novos chegam desligados: ligue só os de quem você confia.",
+        tr("Programas que dão novos poderes ao mascote. Plugins novos chegam desligados: ligue só os de quem você confia."),
         140,
         40
     );
     let plugin_list = add(Some(4), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 188, CONTENT - 2 * x0, 190), IDC_PLUGINS);
     SendMessageW(plugin_list, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as WPARAM, ex as LPARAM);
-    add_columns(plugin_list, &[("Plugin", CONTENT - 2 * x0 - 236), ("Tipo", 86), ("Situação", 146)], dpi);
+    add_columns(plugin_list, &[("Plugin", CONTENT - 2 * x0 - 236), (tr("Tipo"), 86), (tr("Situação"), 146)], dpi);
     add(Some(4), "STATIC", "", 0, 0, (x0, 388, CONTENT - 2 * x0, 58), IDC_PLUGIN_INFO);
-    add(Some(4), "BUTTON", "Testar", button, 0, (x0, 454, 100, 30), IDC_PLUGIN_TEST);
-    add(Some(4), "BUTTON", "Abrir pasta de plugins", button, 0, (x0 + 108, 454, 180, 30), IDC_PLUGIN_FOLDER);
-    add(Some(4), "BUTTON", "Atualizar lista", button, 0, (x0 + 296, 454, 130, 30), IDC_PLUGIN_RELOAD);
+    add(Some(4), "BUTTON", tr("Testar"), button, 0, (x0, 454, 100, 30), IDC_PLUGIN_TEST);
+    add(Some(4), "BUTTON", tr("Abrir pasta de plugins"), button, 0, (x0 + 108, 454, 180, 30), IDC_PLUGIN_FOLDER);
+    add(Some(4), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 296, 454, 130, 30), IDC_PLUGIN_RELOAD);
     add(Some(4), "STATIC", "", 0, 0, (x0, 494, CONTENT - 2 * x0, 44), IDC_PLUGIN_RESULT);
     hint!(
         4,
-        "Crie o seu com um .exe ou um script PowerShell: veja o LEIA-ME.txt e o exemplo \"Curiosidades\" na pasta de plugins.",
+        tr("Crie o seu com um .exe ou um script PowerShell: veja o LEIA-ME.txt e o exemplo \"Curiosidades\" na pasta de plugins."),
         548,
         40
     );
 
     // --- Galeria
-    section!(5, "Galeria da comunidade", 116);
+    section!(5, tr("Galeria da comunidade"), 116);
     hint!(
         5,
-        "Mascotes e plugins da comunidade. Os arquivos vêm do repositório do !StayAlone no GitHub e são conferidos (SHA-256) antes de instalar.",
+        tr("Mascotes e plugins da comunidade. Os arquivos vêm do repositório do !StayAlone no GitHub e são conferidos (SHA-256) antes de instalar."),
         140,
         40
     );
     let gallery_list = add(Some(5), "SysListView32", "", list_style, WS_EX_CLIENTEDGE, (x0, 188, CONTENT - 2 * x0, 214), IDC_GALLERY);
     SendMessageW(gallery_list, LVM_SETEXTENDEDLISTVIEWSTYLE, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as WPARAM, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER) as LPARAM);
-    add_columns(gallery_list, &[("Nome", CONTENT - 2 * x0 - 236), ("Tipo", 86), ("Autor", 146)], dpi);
+    add_columns(gallery_list, &[(tr("Nome"), CONTENT - 2 * x0 - 236), (tr("Tipo"), 86), (tr("Autor"), 146)], dpi);
     add(Some(5), "STATIC", "", 0, 0, (x0, 412, CONTENT - 2 * x0, 40), IDC_GALLERY_INFO);
-    add(Some(5), "BUTTON", "Instalar", button, 0, (x0, 460, 110, 30), IDC_GALLERY_INSTALL);
-    add(Some(5), "BUTTON", "Atualizar lista", button, 0, (x0 + 118, 460, 140, 30), IDC_GALLERY_RELOAD);
+    add(Some(5), "BUTTON", tr("Instalar"), button, 0, (x0, 460, 110, 30), IDC_GALLERY_INSTALL);
+    add(Some(5), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 118, 460, 140, 30), IDC_GALLERY_RELOAD);
     add(Some(5), "STATIC", "", 0, 0, (x0, 500, CONTENT - 2 * x0, 40), IDC_GALLERY_STATUS);
-    hint!(5, "Plugins instalados chegam desligados: ligue na página Plugins.", 548, 20);
+    hint!(5, tr("Plugins instalados chegam desligados: ligue na página Plugins."), 548, 20);
 
     // --- Rodapé (fora dos cartões)
-    add(None, "BUTTON", "Salvar", button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
-    add(None, "BUTTON", "Cancelar", button, 0, (CONTENT - 20 - 104, FOOTER, 104, 32), IDCANCEL);
+    add(None, "BUTTON", tr("Salvar"), button, 0, (CONTENT - 20 - 216, FOOTER, 104, 32), IDOK);
+    add(None, "BUTTON", tr("Cancelar"), button, 0, (CONTENT - 20 - 104, FOOTER, 104, 32), IDCANCEL);
     st.cards = cards.into_inner();
 }
 
@@ -680,7 +681,7 @@ unsafe fn load_gallery(hwnd: HWND) {
         return;
     }
     st.busy = Some(Busy::GalleryList);
-    set_text(hwnd, IDC_GALLERY_STATUS, "Buscando a galeria...");
+    set_text(hwnd, IDC_GALLERY_STATUS, tr("Buscando a galeria..."));
     gallery::list(hwnd, WM_CHAT_REPLY);
 }
 
@@ -702,7 +703,7 @@ fn selected_row(hwnd: HWND, id: i32) -> Option<usize> {
 unsafe fn show_gallery_item(hwnd: HWND) {
     let Some(st) = state(hwnd) else { return };
     let entry = selected_row(hwnd, IDC_GALLERY).and_then(|i| st.gallery.get(i));
-    set_text(hwnd, IDC_GALLERY_INFO, entry.map_or("Selecione um item para ver o que ele faz.", |e| e.about.as_str()));
+    set_text(hwnd, IDC_GALLERY_INFO, entry.map_or(tr("Selecione um item para ver o que ele faz."), |e| e.about.as_str()));
     EnableWindow(item(hwnd, IDC_GALLERY_INSTALL), (entry.is_some() && st.busy.is_none()) as BOOL);
 }
 
@@ -716,7 +717,7 @@ unsafe fn on_gallery_command(hwnd: HWND, id: i32) {
                 return;
             }
             st.busy = Some(Busy::GalleryInstall);
-            set_text(hwnd, IDC_GALLERY_STATUS, &format!("Instalando \"{}\"...", entry.name));
+            set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("Instalando \"{}\"..."), &[&entry.name]));
             show_gallery_item(hwnd);
             gallery::install_in_child(hwnd, WM_CHAT_REPLY, &entry.id);
         }
@@ -742,19 +743,19 @@ unsafe fn populate(hwnd: HWND) {
     fill_mascot_combos(hwnd);
     let sizes: Vec<String> = Size::ALL.iter().map(|s| s.label().to_string()).collect();
     fill_combo(hwnd, IDC_SIZE, &sizes, Size::ALL.iter().position(|s| *s == st.draft.size).unwrap_or(2));
-    let speeds: Vec<String> = SPEEDS.iter().map(|s| s.to_string()).collect();
+    let speeds: Vec<String> = SPEEDS.iter().map(|s| tr(s).to_string()).collect();
     fill_combo(hwnd, IDC_SPEED, &speeds, (st.draft.speed.clamp(1, 4) - 1) as usize);
     set_text(hwnd, IDC_AWAY, &st.draft.companion.away_minutes.to_string());
     set_checked_box(hwnd, IDC_AUTOSTART, config::autostart_enabled());
     set_checked_box(hwnd, IDC_UPDATES, st.draft.updates);
     set_checked_box(hwnd, IDC_MEETINGS, st.draft.quiet_in_meetings);
     set_checked_box(hwnd, IDC_MEMORY, st.draft.memory);
-    let buddies: Vec<String> = std::iter::once("Nenhum".to_string()).chain(st.packs.iter().map(|p| p.name.clone())).collect();
+    let buddies: Vec<String> = std::iter::once(tr("Nenhum").to_string()).chain(st.packs.iter().map(|p| p.name.clone())).collect();
     let buddy = st.packs.iter().position(|p| p.id == st.draft.buddy).map_or(0, |i| i + 1);
     fill_combo(hwnd, IDC_BUDDY, &buddies, buddy);
-    let themes = ["Igual ao Windows".to_string(), "Claro".into(), "Escuro".into()];
+    let themes = [tr("Igual ao Windows").to_string(), tr("Claro").into(), tr("Escuro").into()];
     fill_combo(hwnd, IDC_THEME, &themes, Theme::ALL.iter().position(|t| *t == st.draft.theme).unwrap_or(0));
-    let languages = ["Igual ao Windows".to_string(), "Português".into(), "English".into()];
+    let languages = [tr("Igual ao Windows").to_string(), "Português".into(), "English".into()];
     fill_combo(hwnd, IDC_LANGUAGE, &languages, Language::ALL.iter().position(|l| *l == st.draft.language).unwrap_or(0));
     show_memory_status(hwnd);
     if let Some((day, month)) = st.draft.birthday {
@@ -762,24 +763,24 @@ unsafe fn populate(hwnd: HWND) {
     }
     fill_list(hwnd, None);
 
-    let mut providers: Vec<String> = PROVIDERS.iter().map(|p| p.0.to_string()).collect();
-    providers.push("Personalizado".into());
+    let mut providers: Vec<String> = PROVIDERS.iter().map(|p| tr(p.0).to_string()).collect();
+    providers.push(tr("Personalizado").into());
     fill_combo(hwnd, IDC_PROVIDER, &providers, st.chat.provider_index().unwrap_or(PROVIDERS.len()));
     show_chat_fields(hwnd);
 
-    fill_combo(hwnd, IDC_PRONOUN, &["Ele (o mascote)".into(), "Ela (a mascote)".into()], 0);
+    fill_combo(hwnd, IDC_PRONOUN, &[tr("Ele (o mascote)").into(), tr("Ela (a mascote)").into()], 0);
     let poses: Vec<String> = Pose::ALL.iter().map(|p| p.label().to_string()).collect();
     fill_combo(hwnd, IDC_POSE, &poses, 0);
     fill_plugins(hwnd, None);
 }
 
-/// Combos que listam mascotes (Geral e "Começar a partir de").
+/// Combos que listam mascotes (Geral e tr("Começar a partir de")).
 unsafe fn fill_mascot_combos(hwnd: HWND) {
     let Some(st) = state(hwnd) else { return };
     let names: Vec<String> = st.packs.iter().map(|p| p.name.clone()).collect();
     let current = st.packs.iter().position(|p| p.id == st.draft.mascot).unwrap_or(0);
     fill_combo(hwnd, IDC_MASCOT, &names, current);
-    let templates: Vec<String> = std::iter::once("Desenho em branco".to_string()).chain(names).collect();
+    let templates: Vec<String> = std::iter::once(tr("Desenho em branco").to_string()).chain(names).collect();
     fill_combo(hwnd, IDC_TEMPLATE, &templates, 0);
 }
 
@@ -833,7 +834,7 @@ unsafe fn show_selection(hwnd: HWND, index: Option<usize>) {
 unsafe fn number(hwnd: HWND, id: i32, range: std::ops::RangeInclusive<u32>, what: &str) -> Option<u32> {
     let value = text_of(item(hwnd, id)).parse::<u32>().ok().filter(|v| range.contains(v));
     if value.is_none() {
-        info(hwnd, &format!("{what}: use um número entre {} e {}.", range.start(), range.end()));
+        info(hwnd, &fill(tr("{}: use um número entre {} e {}."), &[&what, range.start(), range.end()]));
         SetFocus(item(hwnd, id));
     }
     value
@@ -844,11 +845,11 @@ unsafe fn on_reminder_command(hwnd: HWND, id: i32) {
     match id {
         IDC_ADD | IDC_UPDATE => {
             let editing = if id == IDC_UPDATE { selected(hwnd) } else { None };
-            let Some(minutes) = number(hwnd, IDC_MINUTES, 1..=1440, "Intervalo") else { return };
+            let Some(minutes) = number(hwnd, IDC_MINUTES, 1..=1440, tr("Intervalo")) else { return };
             let text = text_of(item(hwnd, IDC_TEXT));
             let builtin = editing.is_some_and(|i| !matches!(st.draft.companion.reminders[i].kind, ReminderKind::Custom(_)));
             if text.is_empty() && !builtin {
-                info(hwnd, "Escreva o texto do lembrete.");
+                info(hwnd, tr("Escreva o texto do lembrete."));
                 SetFocus(item(hwnd, IDC_TEXT));
                 return;
             }
@@ -863,7 +864,7 @@ unsafe fn on_reminder_command(hwnd: HWND, id: i32) {
                 }
                 None => {
                     if reminders.len() >= ReminderKind::BUILT_IN.len() + MAX_REMINDERS {
-                        return info(hwnd, &format!("Dá para ter até {MAX_REMINDERS} lembretes seus."));
+                        return info(hwnd, &fill(tr("Dá para ter até {} lembretes seus."), &[&MAX_REMINDERS]));
                     }
                     reminders.push(Reminder { on: true, minutes, kind: ReminderKind::Custom(text) });
                     set_text(hwnd, IDC_TEXT, "");
@@ -912,14 +913,14 @@ unsafe fn show_chat_fields(hwnd: HWND) {
 unsafe fn show_key_status(hwnd: HWND) {
     let name = text_of(item(hwnd, IDC_KEYENV));
     let (text, removable) = if name.is_empty() {
-        ("Este serviço não usa chave.".to_string(), false)
+        (tr("Este serviço não usa chave.").to_string(), false)
     } else if !secret::valid_name(&name) {
-        ("Use só letras, números e _ no nome.".to_string(), false)
+        (tr("Use só letras, números e _ no nome.").to_string(), false)
     } else {
         match secret::find(&name) {
-            Some(KeySource::Vault) => ("✓ Chave salva no Windows.".to_string(), true),
-            Some(KeySource::Environment) => (format!("✓ Usando a variável de ambiente {name}."), false),
-            None => ("Nenhuma chave salva ainda.".to_string(), false),
+            Some(KeySource::Vault) => (tr("✓ Chave salva no Windows.").to_string(), true),
+            Some(KeySource::Environment) => (fill(tr("✓ Usando a variável de ambiente {}."), &[&name]), false),
+            None => (tr("Nenhuma chave salva ainda.").to_string(), false),
         }
     };
     set_text(hwnd, IDC_KEY_STATUS, &text);
@@ -940,19 +941,20 @@ unsafe fn save_chat(hwnd: HWND) -> bool {
     let Some(st) = state(hwnd) else { return false };
     let base = text_of(item(hwnd, IDC_BASE)).trim_end_matches('/').to_string();
     if !config::endpoint_allowed(&base) {
-        let text = "O endereço da API precisa começar com https://\n(http:// só para serviços no seu próprio PC, como o Ollama).";
+        let text = tr("O endereço da API precisa começar com https://
+(http:// só para serviços no seu próprio PC, como o Ollama).");
         return chat_field_error(hwnd, IDC_BASE, text);
     }
     let key_name = text_of(item(hwnd, IDC_KEYENV));
     if !key_name.is_empty() && !secret::valid_name(&key_name) {
-        return chat_field_error(hwnd, IDC_KEYENV, "O nome da chave só pode ter letras, números e _ (ex.: GEMINI_API_KEY).");
+        return chat_field_error(hwnd, IDC_KEYENV, tr("O nome da chave só pode ter letras, números e _ (ex.: GEMINI_API_KEY)."));
     }
     let mut key = text_of(item(hwnd, IDC_KEY));
     if !key.is_empty() {
         let saved = secret::save(&key_name, &key);
         key.as_bytes_mut().fill(0); // não deixa a chave solta na memória
         if let Err(e) = saved {
-            return chat_field_error(hwnd, IDC_KEY, &format!("Não salvei a chave: {e}"));
+            return chat_field_error(hwnd, IDC_KEY, &fill(tr("Não salvei a chave: {}"), &[&e]));
         }
         set_text(hwnd, IDC_KEY, "");
     }
@@ -983,7 +985,7 @@ unsafe fn on_chat_command(hwnd: HWND, id: i32) {
             }
             let plugin = Plugin::native();
             st.busy = Some(Busy::Test);
-            set_text(hwnd, IDC_TEST_RESULT, "Testando...");
+            set_text(hwnd, IDC_TEST_RESULT, tr("Testando..."));
             plugins::request(hwnd, WM_CHAT_REPLY, &plugin, None, hello_payload(), |reply| reply);
         }
         _ => {}
@@ -991,7 +993,7 @@ unsafe fn on_chat_command(hwnd: HWND, id: i32) {
 }
 
 fn hello_payload() -> String {
-    chat::payload("Responda em uma frase curta, em português.", &[(true, "Diga oi!".into())], None)
+    chat::payload(tr("Responda em uma frase curta, em português."), &[(true, tr("Diga oi!").into())], None)
 }
 
 // --- plugins ----------------------------------------------------------------------
@@ -1004,10 +1006,10 @@ unsafe fn fill_plugins(hwnd: HWND, select: Option<usize>) {
     for (i, p) in st.plugins.iter().enumerate() {
         let status = p.status(&st.draft.plugins);
         let label = match status {
-            Status::On => "ligado",
-            Status::Off => "desligado",
-            Status::Changed => "arquivo mudou",
-            Status::Missing => "falta o arquivo",
+            Status::On => tr("ligado"),
+            Status::Off => tr("desligado"),
+            Status::Changed => tr("arquivo mudou"),
+            Status::Missing => tr("falta o arquivo"),
         };
         insert_row(list, i, &[&p.name, p.kind.label(), label]);
         set_checked(list, i, status == Status::On);
@@ -1028,15 +1030,17 @@ fn selected_plugin(hwnd: HWND) -> Option<usize> {
 unsafe fn show_plugin(hwnd: HWND, index: Option<usize>) {
     let Some(st) = state(hwnd) else { return };
     let plugin = index.and_then(|i| st.plugins.get(i));
-    let text = plugin.map_or("Selecione um plugin para ver os detalhes.".to_string(), |p| {
+    let text = plugin.map_or(tr("Selecione um plugin para ver os detalhes.").to_string(), |p| {
         let file = p.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
-        let when = if p.kind == PluginKind::Notice { format!("  •  fala a cada {} min", p.every) } else { String::new() };
+        let when = if p.kind == PluginKind::Notice { fill(tr("  •  fala a cada {} min"), &[&p.every]) } else { String::new() };
         let warning = match p.status(&st.draft.plugins) {
-            Status::Changed => "\nO arquivo mudou depois que você ligou: marque de novo só se confiar na nova versão.",
-            Status::Missing => "\nO arquivo do plugin não está mais na pasta.",
+            Status::Changed => tr("
+O arquivo mudou depois que você ligou: marque de novo só se confiar na nova versão."),
+            Status::Missing => tr("
+O arquivo do plugin não está mais na pasta."),
             _ => "",
         };
-        format!("{}\nArquivo: {file}{when}{warning}", p.about)
+        format!("{}\n{} {file}{when}{warning}", p.about, tr("Arquivo:"))
     });
     set_text(hwnd, IDC_PLUGIN_INFO, &text);
     EnableWindow(item(hwnd, IDC_PLUGIN_TEST), plugin.is_some() as BOOL);
@@ -1077,23 +1081,23 @@ unsafe fn toggle_plugin(hwnd: HWND, i: usize, on: bool) {
 /// Pede a sua confirmação e guarda a impressão digital do programa.
 unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
     if !plugin.program.is_file() {
-        info(hwnd, &format!("O arquivo do plugin \"{}\" não está mais na pasta.", plugin.name));
+        info(hwnd, &fill(tr("O arquivo do plugin \"{}\" não está mais na pasta."), &[&plugin.name]));
         return None;
     }
     if plugin.is_native() {
         return Some(Enabled { id: plugin.id.clone(), fingerprint: String::new() });
     }
     let file = plugin.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
-    let question = format!(
-        "Ligar o plugin \"{}\"?\n\n{}\n\nEle é um programa ({file}) que vai rodar no seu PC com as suas permissões. \
-         Ligue só plugins de quem você confia.",
-        plugin.name, plugin.about
+    let question = fill(
+        tr("Ligar o plugin \"{}\"?\n\n{}\n\nEle é um programa ({}) que vai rodar no seu PC com as suas permissões. \
+            Ligue só plugins de quem você confia."),
+        &[&plugin.name, &plugin.about, &file],
     );
     if MessageBoxW(hwnd, w(&question).as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES {
         return None;
     }
     let Some(fingerprint) = plugin.fingerprint() else {
-        info(hwnd, "Não consegui ler o arquivo do plugin.");
+        info(hwnd, tr("Não consegui ler o arquivo do plugin."));
         return None;
     };
     Some(Enabled { id: plugin.id.clone(), fingerprint })
@@ -1108,19 +1112,19 @@ unsafe fn on_plugin_command(hwnd: HWND, id: i32) {
                 return;
             }
             if plugin.status(&st.draft.plugins) != Status::On {
-                set_text(hwnd, IDC_PLUGIN_RESULT, "Ligue o plugin para testar.");
+                set_text(hwnd, IDC_PLUGIN_RESULT, tr("Ligue o plugin para testar."));
                 return;
             }
             let input = match plugin.kind {
                 PluginKind::Chat => hello_payload(),
                 PluginKind::Notice => {
                     let mascot = st.packs.iter().find(|p| p.id == st.draft.mascot).and_then(|p| pack::load(p).ok());
-                    let (name, female) = mascot.map_or(("Mascote".into(), false), |p| (p.art.name.clone(), p.art.female()));
+                    let (name, female) = mascot.map_or((tr("Mascote").into(), false), |p| (p.art.name.clone(), p.art.female()));
                     plugins::notice_input(&name, female, 12)
                 }
             };
             st.busy = Some(Busy::Plugin);
-            set_text(hwnd, IDC_PLUGIN_RESULT, &format!("Testando \"{}\"...", plugin.name));
+            set_text(hwnd, IDC_PLUGIN_RESULT, &fill(tr("Testando \"{}\"..."), &[&plugin.name]));
             let approved = plugin.approved(&st.draft.plugins);
             plugins::request(hwnd, WM_CHAT_REPLY, &plugin, approved, input, |reply| reply);
         }
@@ -1191,7 +1195,7 @@ unsafe fn on_maker_command(hwnd: HWND, id: i32, code: u32) {
                 return;
             }
             if description.is_empty() {
-                info(hwnd, "Descreva o mascote que você quer (ex.: um polvo roxo de chapéu).");
+                info(hwnd, tr("Descreva o mascote que você quer (ex.: um polvo roxo de chapéu)."));
                 SetFocus(item(hwnd, IDC_AI_TEXT));
                 return;
             }
@@ -1200,8 +1204,8 @@ unsafe fn on_maker_command(hwnd: HWND, id: i32, code: u32) {
             }
             let plugin = Plugin::native();
             st.busy = Some(Busy::Draw);
-            set_text(hwnd, IDC_AI_STATUS, "Desenhando... isso pode levar alguns segundos.");
-            let payload = chat::payload(chat::DRAW_PROMPT, &[(true, description)], Some(4096));
+            set_text(hwnd, IDC_AI_STATUS, tr("Desenhando... isso pode levar alguns segundos."));
+            let payload = chat::payload(&chat::draw_prompt(), &[(true, description)], Some(4096));
             plugins::request(hwnd, WM_CHAT_REPLY, &plugin, None, payload, |reply| reply);
         }
         _ => {}
@@ -1209,7 +1213,7 @@ unsafe fn on_maker_command(hwnd: HWND, id: i32, code: u32) {
 }
 
 unsafe fn info_err(hwnd: HWND, e: &str) {
-    info(hwnd, &format!("Não consegui abrir esse mascote.\n\n{e}"));
+    info(hwnd, &fill(tr("Não consegui abrir esse mascote.\n\n{}"), &[&e]));
 }
 
 unsafe fn save_mascot(hwnd: HWND) {
@@ -1218,26 +1222,26 @@ unsafe fn save_mascot(hwnd: HWND) {
     st.drawing.about = text_of(item(hwnd, IDC_ABOUT));
     st.drawing.female = combo_index(hwnd, IDC_PRONOUN) == 1;
     if st.drawing.name.is_empty() {
-        info(hwnd, "Dê um nome para o seu mascote.");
+        info(hwnd, tr("Dê um nome para o seu mascote."));
         SetFocus(item(hwnd, IDC_NAME));
         return;
     }
     if st.drawing.is_empty() {
-        info(hwnd, "Desenhe alguma coisa primeiro (ou comece a partir de um mascote).");
+        info(hwnd, tr("Desenhe alguma coisa primeiro (ou comece a partir de um mascote)."));
         return;
     }
     let id = st.drawing.id();
     let Some(dir) = pack::user_dir().map(|d| d.join(&id)) else { return };
     let replaces = pack::EMBEDDED.iter().any(|(e, ..)| *e == id) || dir.exists();
     if replaces {
-        let msg = format!("Já existe um mascote chamado \"{}\". Substituir?", st.drawing.name);
+        let msg = fill(tr("Já existe um mascote chamado \"{}\". Substituir?"), &[&st.drawing.name]);
         if MessageBoxW(hwnd, w(&msg).as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONQUESTION) != IDYES {
             return;
         }
     }
     let written = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join("mascot.txt"), st.drawing.to_mascot_txt()));
     if let Err(e) = written {
-        return info(hwnd, &format!("Não consegui salvar o mascote.\n\n{e}"));
+        return info(hwnd, &fill(tr("Não consegui salvar o mascote.\n\n{}"), &[&e]));
     }
     // Atualiza as listas e já coloca o mascote novo na tela.
     st.packs = pack::list();
@@ -1246,54 +1250,54 @@ unsafe fn save_mascot(hwnd: HWND) {
     fill_mascot_combos(hwnd);
     SendMessageW(item(hwnd, IDC_TEMPLATE), CB_SETCURSEL, template, 0);
     mailbox::post(st.owner, WM_MASCOT_SAVED, id);
-    let article = if st.drawing.female { "A" } else { "O" };
-    set_text(hwnd, IDC_AI_STATUS, &format!("Salvo! {article} {} já está na sua área de trabalho.", st.drawing.name));
+    let saved = if st.drawing.female { tr("Salvo! A {} já está na sua área de trabalho.") } else { tr("Salvo! O {} já está na sua área de trabalho.") };
+    set_text(hwnd, IDC_AI_STATUS, &fill(saved, &[&st.drawing.name]));
 }
 
 unsafe fn on_reply(hwnd: HWND, reply: Reply) {
     let Some(st) = state(hwnd) else { return };
     match (st.busy.take(), reply) {
-        (Some(Busy::Test), Ok(text)) => set_text(hwnd, IDC_TEST_RESULT, &format!("✓ Funcionou! \"{}\"", chat::shorten(&text))),
+        (Some(Busy::Test), Ok(text)) => set_text(hwnd, IDC_TEST_RESULT, &fill(tr("✓ Funcionou! \"{}\""), &[&chat::shorten(&text)])),
         (Some(Busy::Test), Err(e)) => set_text(hwnd, IDC_TEST_RESULT, &format!("✗ {}", chat::shorten(&e))),
         (Some(Busy::Draw), Ok(text)) => match Drawing::from_ai(&text) {
             Ok(drawing) => {
                 SendMessageW(item(hwnd, IDC_TEMPLATE), CB_SETCURSEL, 0, 0);
                 load_drawing(hwnd, drawing, true);
-                set_text(hwnd, IDC_AI_STATUS, "Pronto! Ajuste o desenho se quiser e clique em Salvar e usar.");
+                set_text(hwnd, IDC_AI_STATUS, tr("Pronto! Ajuste o desenho se quiser e clique em Salvar e usar."));
             }
             Err(e) => set_text(hwnd, IDC_AI_STATUS, &format!("Hmm, {e}")),
         },
-        (Some(Busy::Draw), Err(e)) => set_text(hwnd, IDC_AI_STATUS, &format!("Não deu: {}", chat::shorten(&e))),
+        (Some(Busy::Draw), Err(e)) => set_text(hwnd, IDC_AI_STATUS, &fill(tr("Não deu: {}"), &[&chat::shorten(&e)])),
         (Some(Busy::Plugin), Ok(text)) if text.is_empty() => {
-            set_text(hwnd, IDC_PLUGIN_RESULT, "✓ Rodou, mas não tinha nada para falar desta vez.");
+            set_text(hwnd, IDC_PLUGIN_RESULT, tr("✓ Rodou, mas não tinha nada para falar desta vez."));
         }
-        (Some(Busy::Plugin), Ok(text)) => set_text(hwnd, IDC_PLUGIN_RESULT, &format!("✓ Respondeu: \"{}\"", chat::shorten(&text))),
+        (Some(Busy::Plugin), Ok(text)) => set_text(hwnd, IDC_PLUGIN_RESULT, &fill(tr("✓ Respondeu: \"{}\""), &[&chat::shorten(&text)])),
         (Some(Busy::Plugin), Err(e)) => set_text(hwnd, IDC_PLUGIN_RESULT, &format!("✗ {}", chat::shorten(&e))),
         (Some(Busy::GalleryList), Ok(text)) => {
             st.gallery = gallery::parse_lines(&text);
             st.gallery_loaded = true;
             let count = st.gallery.len();
             fill_gallery(hwnd);
-            set_text(hwnd, IDC_GALLERY_STATUS, &format!("{count} itens na galeria."));
+            set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("{} itens na galeria."), &[&count]));
         }
         (Some(Busy::GalleryList), Err(e)) => {
-            set_text(hwnd, IDC_GALLERY_STATUS, &format!("Não consegui abrir a galeria: {}", chat::shorten(&e)));
+            set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("Não consegui abrir a galeria: {}"), &[&chat::shorten(&e)]));
         }
         (Some(Busy::GalleryInstall), Ok(text)) => {
             let status = if text.starts_with("plugin") {
                 st.plugins = plugins::list();
                 fill_plugins(hwnd, None);
-                "Instalado! O plugin está na página Plugins, desligado: ligue quando quiser."
+                tr("Instalado! O plugin está na página Plugins, desligado: ligue quando quiser.")
             } else {
                 st.packs = pack::list();
                 fill_mascot_combos(hwnd);
-                "Instalado! Escolha o mascote na página Geral (ou no painel)."
+                tr("Instalado! Escolha o mascote na página Geral (ou no painel).")
             };
             set_text(hwnd, IDC_GALLERY_STATUS, status);
             show_gallery_item(hwnd);
         }
         (Some(Busy::GalleryInstall), Err(e)) => {
-            set_text(hwnd, IDC_GALLERY_STATUS, &format!("Não instalei: {}", chat::shorten(&e)));
+            set_text(hwnd, IDC_GALLERY_STATUS, &fill(tr("Não instalei: {}"), &[&chat::shorten(&e)]));
             show_gallery_item(hwnd);
         }
         (None, _) => {}
@@ -1304,9 +1308,9 @@ unsafe fn on_reply(hwnd: HWND, reply: Reply) {
 
 unsafe fn show_memory_status(hwnd: HWND) {
     let text = match memory::load().len() {
-        0 => "Ainda não lembra de nada.".to_string(),
-        1 => "Lembra de 1 coisa.".to_string(),
-        n => format!("Lembra de {n} coisas."),
+        0 => tr("Ainda não lembra de nada.").to_string(),
+        1 => tr("Lembra de 1 coisa.").to_string(),
+        n => fill(tr("Lembra de {} coisas."), &[&n]),
     };
     set_text(hwnd, IDC_MEMORY_STATUS, &text);
 }
@@ -1319,7 +1323,7 @@ unsafe fn on_memory_command(hwnd: HWND, id: i32) {
             }
         }
         IDC_MEMORY_CLEAR => {
-            let question = w("Esquecer tudo o que o mascote lembra de você?");
+            let question = w(tr("Esquecer tudo o que o mascote lembra de você?"));
             if MessageBoxW(hwnd, question.as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES {
                 memory::forget_all();
                 show_memory_status(hwnd);
@@ -1345,7 +1349,7 @@ unsafe fn set_checked_box(hwnd: HWND, id: i32, on: bool) {
 
 unsafe fn on_ok(hwnd: HWND) {
     let Some(st) = state(hwnd) else { return };
-    let Some(away) = number(hwnd, IDC_AWAY, 1..=120, "Tempo para considerar ausente") else {
+    let Some(away) = number(hwnd, IDC_AWAY, 1..=120, tr("Tempo para considerar ausente")) else {
         return show_page(hwnd, Page::General as usize);
     };
     if !save_chat(hwnd) {
@@ -1361,7 +1365,7 @@ unsafe fn on_ok(hwnd: HWND) {
     st.draft.birthday = config::parse_birthday(&birthday);
     if !birthday.is_empty() && st.draft.birthday.is_none() {
         show_page(hwnd, Page::General as usize);
-        info(hwnd, "Aniversário: use dia/mês, por exemplo 25/12.");
+        info(hwnd, tr("Aniversário: use dia/mês, por exemplo 25/12."));
         SetFocus(item(hwnd, IDC_BIRTHDAY));
         return;
     }
@@ -1414,7 +1418,7 @@ unsafe fn paint(hwnd: HWND) {
     c.card((bx, s(24), box_size, box_size), s(20), argb(theme::card()), argb(theme::border()));
     c.sprite_fit(bx + (box_size - s(64)) / 2, s(24) + (box_size - s(64)) / 2, s(64), &st.preview.1);
     c.text(st.bold, &st.preview.0, RECT { left: 0, top: s(116), right: side, bottom: s(140) }, theme::text(), center);
-    c.text(st.small, "Configurações", RECT { left: 0, top: s(138), right: side, bottom: s(156) }, theme::muted(), center);
+    c.text(st.small, tr("Configurações"), RECT { left: 0, top: s(138), right: side, bottom: s(156) }, theme::muted(), center);
     for (i, &(_, glyph, label)) in PAGES.iter().enumerate() {
         let r = nav_rect(i, st.dpi);
         let (x, y, w, h) = (r.left, r.top, r.right - r.left, r.bottom - r.top);
@@ -1428,14 +1432,14 @@ unsafe fn paint(hwnd: HWND) {
         let (ink, font) = if selected { (theme::accent(), st.bold) } else { (theme::muted(), st.font) };
         c.text(st.icons, &glyph.to_string(), RECT { left: x + s(14), top: y, right: x + s(38), bottom: y + h }, ink, center);
         let text_ink = if selected { theme::text() } else { theme::muted() };
-        c.text(font, label, RECT { left: x + s(46), top: y, right: x + w - s(6), bottom: y + h }, text_ink, left);
+        c.text(font, tr(label), RECT { left: x + s(46), top: y, right: x + w - s(6), bottom: y + h }, text_ink, left);
     }
     let version = format!("!StayAlone v{}", crate::update::current());
     c.text(st.small, &version, RECT { left: 0, top: height - s(34), right: side, bottom: height - s(12) }, theme::disabled(), center);
 
     // Título da página e os cartões atrás dos controles.
     let title = RECT { left: side + s(CARD_X), top: s(14), right: width - s(20), bottom: s(50) };
-    c.text(st.title, PAGES[st.page].2, title, theme::text(), left);
+    c.text(st.title, tr(PAGES[st.page].2), title, theme::text(), left);
     for (_, r) in st.cards.iter().filter(|(p, _)| *p == st.page) {
         let (x, y) = (side + s(r.left), s(r.top - SHIFT));
         c.card((x, y, s(r.right - r.left), s(r.bottom - r.top)), s(12), argb(theme::card()), argb(theme::border()));

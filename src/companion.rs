@@ -2,7 +2,10 @@
 //! pausas, guarda o afeto e o resumo do dia. Lógica pura — o app só chama
 //! `update` a cada poucos segundos e executa os eventos devolvidos.
 
-use crate::phrases::Topic;
+use crate::{
+    lang::{self, tr},
+    phrases::Topic,
+};
 
 /// Lembrete periódico, contado só em tempo ativo no computador.
 #[derive(Clone, PartialEq, Debug)]
@@ -36,9 +39,9 @@ impl ReminderKind {
 
     pub fn label(&self) -> &str {
         match self {
-            ReminderKind::Water => "Beber água",
-            ReminderKind::Stretch => "Alongar",
-            ReminderKind::Eyes => "Descansar os olhos",
+            ReminderKind::Water => tr("Beber água"),
+            ReminderKind::Stretch => tr("Alongar"),
+            ReminderKind::Eyes => tr("Descansar os olhos"),
             ReminderKind::Custom(text) => text,
         }
     }
@@ -394,17 +397,20 @@ impl Companion {
     /// Clique no balão: confirma o lembrete.
     pub fn on_ack(&mut self, topic: Topic) -> Option<Topic> {
         match topic {
-            Topic::Water => {
-                self.stats.water += 1;
-                self.bump(2.0);
-                Some(Topic::Thanks)
-            }
+            Topic::Water => Some(self.drank_water()),
             Topic::Stretch | Topic::Eyes | Topic::Reminder => {
                 self.bump(2.0);
                 Some(Topic::Thanks)
             }
             _ => None,
         }
+    }
+
+    /// Bebeu um copo d'água (pelo balão, pelo painel ou por `--agua`).
+    pub fn drank_water(&mut self) -> Topic {
+        self.stats.water += 1;
+        self.bump(2.0);
+        Topic::Thanks
     }
 
     pub fn pomodoro_active(&self) -> bool {
@@ -516,14 +522,14 @@ pub fn fill(text: &str, s: &Stats, name: &str) -> String {
     let (h, m) = (s.together_secs / 3600, s.together_secs % 3600 / 60);
     let together = if h > 0 { format!("{h}h{m:02}min") } else { format!("{m}min") };
     let breaks = match s.breaks {
-        0 => "nenhuma pausa".to_string(),
-        1 => "1 pausa".to_string(),
-        n => format!("{n} pausas"),
+        0 => tr("nenhuma pausa").to_string(),
+        1 => tr("1 pausa").to_string(),
+        n => lang::fill(tr("{} pausas"), &[&n]),
     };
     let water = match s.water {
-        0 => "nenhuma vez".to_string(),
-        1 => "1 vez".to_string(),
-        n => format!("{n} vezes"),
+        0 => tr("nenhuma vez").to_string(),
+        1 => tr("1 vez").to_string(),
+        n => lang::fill(tr("{} vezes"), &[&n]),
     };
     text.replace("{nome}", name)
         .replace("{juntos}", &together)

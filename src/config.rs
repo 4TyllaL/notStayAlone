@@ -11,6 +11,7 @@ use windows_sys::Win32::{Foundation::ERROR_SUCCESS, System::Registry::*};
 
 use crate::companion::{Reminder, ReminderKind, Settings};
 use crate::plugins::{Enabled, NATIVE_ID};
+use crate::lang::tr;
 use crate::win::{clean_line, w};
 
 /// Nenhum arquivo de texto do app (configurações, mods, falas) passa disso:
@@ -43,10 +44,10 @@ impl Size {
 
     pub fn label(self) -> &'static str {
         match self {
-            Size::Tiny => "Extra pequeno",
-            Size::Small => "Pequeno",
-            Size::Medium => "Médio",
-            Size::Large => "Grande",
+            Size::Tiny => tr("Extra pequeno"),
+            Size::Small => tr("Pequeno"),
+            Size::Medium => tr("Médio"),
+            Size::Large => tr("Grande"),
         }
     }
 
@@ -54,9 +55,9 @@ impl Size {
     pub fn short(self) -> &'static str {
         match self {
             Size::Tiny => "Mini",
-            Size::Small => "P",
+            Size::Small => tr("P"),
             Size::Medium => "M",
-            Size::Large => "G",
+            Size::Large => tr("G"),
         }
     }
 

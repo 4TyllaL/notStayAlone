@@ -18,7 +18,11 @@ use std::io::{Read, Write};
 
 use json::{quote, Json};
 
-use crate::{config::ChatSettings, secret};
+use crate::{
+    config::ChatSettings,
+    lang::{fill, tr},
+    secret,
+};
 
 /// Argumento que abre o app no modo "conversa com IA".
 pub const ARG: &str = "--ia";
@@ -46,11 +50,11 @@ pub fn serve() -> i32 {
 
 fn read_request() -> Result<Json, String> {
     let mut bytes = Vec::new();
-    std::io::stdin().take(MAX_REQUEST + 1).read_to_end(&mut bytes).map_err(|e| format!("não li a conversa: {e}"))?;
+    std::io::stdin().take(MAX_REQUEST + 1).read_to_end(&mut bytes).map_err(|e| fill(tr("não li a conversa: {}"), &[&e]))?;
     if bytes.len() as u64 > MAX_REQUEST {
-        return Err("a conversa veio grande demais.".into());
+        return Err(tr("a conversa veio grande demais.").into());
     }
-    let text = String::from_utf8(bytes).map_err(|_| "a conversa não veio em UTF-8.".to_string())?;
+    let text = String::from_utf8(bytes).map_err(|_| tr("a conversa não veio em UTF-8.").to_string())?;
     // Alguns programas mandam o BOM do UTF-8 no começo.
     json::parse(text.trim_start_matches('\u{feff}'))
 }
@@ -58,12 +62,12 @@ fn read_request() -> Result<Json, String> {
 fn answer(request: &Json) -> Result<String, String> {
     let config = ChatSettings::load();
     if config.api_base.is_empty() || config.model.is_empty() {
-        return Err("chat.ini sem api_base ou model.".into());
+        return Err(tr("chat.ini sem api_base ou model.").into());
     }
     let key = secret::read(&config.key_env)?;
     let url = format!("{}/chat/completions", config.api_base);
     let (status, text) = crate::net::post(&url, key.as_deref(), &body(&config, request))?;
-    let reply = json::parse(&text).map_err(|_| format!("resposta inesperada do servidor (HTTP {status})"))?;
+    let reply = json::parse(&text).map_err(|_| fill(tr("resposta inesperada do servidor (HTTP {})"), &[&status]))?;
     // Alguns provedores devolvem o erro dentro de uma lista.
     let reply = match &reply {
         Json::Arr(items) if !items.is_empty() => &items[0],
@@ -73,10 +77,10 @@ fn answer(request: &Json) -> Result<String, String> {
         let message = reply.get("error").and_then(|e| e.get("message")).and_then(Json::as_str);
         let bad_key = message.is_some_and(|m| m.to_lowercase().contains("api key"));
         return Err(match status {
-            _ if bad_key => "a chave da API foi recusada — confira em Configurações → Conversa.".into(),
-            401 | 403 => "a chave da API foi recusada — confira em Configurações → Conversa.".into(),
-            429 => "muitas mensagens seguidas (limite da API). Tenta daqui a pouco!".into(),
-            _ => format!("HTTP {status}: {}", message.unwrap_or("erro no servidor")),
+            _ if bad_key => tr("a chave da API foi recusada — confira em Configurações → Conversa.").into(),
+            401 | 403 => tr("a chave da API foi recusada — confira em Configurações → Conversa.").into(),
+            429 => tr("muitas mensagens seguidas (limite da API). Tenta daqui a pouco!").into(),
+            _ => format!("HTTP {status}: {}", message.unwrap_or(tr("erro no servidor"))),
         });
     }
     let content = reply
@@ -88,7 +92,7 @@ fn answer(request: &Json) -> Result<String, String> {
         .map(str::trim)
         .unwrap_or("");
     if content.is_empty() {
-        return Err("o modelo não respondeu nada (talvez max_tokens baixo demais).".into());
+        return Err(tr("o modelo não respondeu nada (talvez max_tokens baixo demais).").into());
     }
     Ok(content.to_string())
 }

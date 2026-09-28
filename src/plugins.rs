@@ -27,6 +27,7 @@ use crate::{
     ai::{self, json::quote},
     child::{self, Reply},
     config::read_file,
+    lang::{self, tr},
     sha256,
     win::clean_line,
 };
@@ -68,8 +69,8 @@ pub enum Kind {
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Chat => "Conversa",
-            Kind::Notice => "Avisos",
+            Kind::Chat => tr("Conversa"),
+            Kind::Notice => tr("Avisos"),
         }
     }
 }
@@ -108,8 +109,8 @@ impl Plugin {
         let exe = std::env::current_exe().unwrap_or_default();
         Plugin {
             id: NATIVE_ID.into(),
-            name: "Conversa com IA (nativo)".into(),
-            about: "Responde com a IA escolhida na aba Conversa (Gemini, OpenAI, Ollama...).".into(),
+            name: tr("Conversa com IA (nativo)").into(),
+            about: tr("Responde com a IA escolhida na aba Conversa (Gemini, OpenAI, Ollama...).").into(),
             kind: Kind::Chat,
             program: exe,
             every: 0,
@@ -255,7 +256,8 @@ fn crlf(text: &str) -> String {
 
 /// O que um plugin de avisos recebe no stdin.
 pub fn notice_input(mascot: &str, female: bool, hour: u32) -> String {
-    format!("{{\"evento\":\"aviso\",\"mascote\":{},\"feminino\":{female},\"hora\":{hour}}}", quote(mascot))
+    let idioma = if lang::is_english() { "en" } else { "pt" };
+    format!("{{\"evento\":\"aviso\",\"mascote\":{},\"feminino\":{female},\"hora\":{hour},\"idioma\":\"{idioma}\"}}", quote(mascot))
 }
 
 /// Roda o plugin numa thread e entrega `wrap(resposta)` à janela `to` com `msg` (pelo `mailbox`).
@@ -336,6 +338,6 @@ mod tests {
 
     #[test]
     fn notice_input_is_json() {
-        assert_eq!(notice_input("Zé \"Z\"", false, 9), r#"{"evento":"aviso","mascote":"Zé \"Z\"","feminino":false,"hora":9}"#);
+        assert_eq!(notice_input("Zé \"Z\"", false, 9), r#"{"evento":"aviso","mascote":"Zé \"Z\"","feminino":false,"hora":9,"idioma":"pt"}"#);
     }
 }

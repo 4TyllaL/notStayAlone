@@ -22,6 +22,7 @@ use windows_sys::Win32::{
 
 use crate::{
     gfx::Canvas,
+    lang::{fill, tr},
     mailbox, system,
     theme::{self, argb, icon},
     win::{ui_font, w},
@@ -52,6 +53,8 @@ pub enum Action {
     Hide,
     Reminders,
     Summary,
+    /// Bebeu um copo d'água (conta no resumo do dia).
+    Water,
     Settings,
     /// Baixar e instalar a versão nova.
     Update,
@@ -79,6 +82,8 @@ pub struct Model {
     pub silenced: bool,
     pub hidden: bool,
     pub reminders_on: usize,
+    /// Copos d'água de hoje.
+    pub water: u32,
     /// Versão nova disponível (mostra a faixa "Atualizar").
     pub update: Option<String>,
 }
@@ -134,16 +139,16 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
     add(rect(x0, y, inner, s(20)), Part::Stats, None);
     y += s(30);
     if let Some(version) = &m.update {
-        add(rect(x0, y, inner, s(38)), Part::Banner(format!("Versão {version} disponível — atualizar")), Some(Action::Update));
+        add(rect(x0, y, inner, s(38)), Part::Banner(fill(tr("Versão {} disponível — atualizar"), &[version])), Some(Action::Update));
         y += s(38) + s(12);
     }
 
     // Atalhos grandes.
     let tiles = [
-        (icon::FOOD, "Petisco", false, Action::Feed),
-        (icon::GAME, if m.ball_out { "Guardar" } else { "Bolinha" }, m.ball_out, Action::Ball),
-        (icon::CHAT, "Conversar", false, Action::Chat),
-        (icon::TIMER, if m.pomodoro { "Parar" } else { "Foco" }, m.pomodoro, Action::Pomodoro),
+        (icon::FOOD, tr("Petisco"), false, Action::Feed),
+        (icon::GAME, if m.ball_out { tr("Guardar") } else { tr("Bolinha") }, m.ball_out, Action::Ball),
+        (icon::CHAT, tr("Conversar"), false, Action::Chat),
+        (icon::TIMER, if m.pomodoro { tr("Parar") } else { tr("Foco") }, m.pomodoro, Action::Pomodoro),
     ];
     let gap = s(8);
     let tile_w = (inner - 3 * gap) / 4;
@@ -154,7 +159,7 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
     y += s(64) + s(16);
 
     // Trocar de mascote clicando no desenho.
-    add(rect(x0, y, inner, s(18)), Part::Caption("Mascote"), None);
+    add(rect(x0, y, inner, s(18)), Part::Caption(tr("Mascote")), None);
     y += s(24);
     let slot = s(46);
     let slot_gap = (inner - 5 * slot) / 4;
@@ -173,7 +178,7 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
     y += slot + s(16);
 
     // Tamanho: seletor segmentado.
-    add(rect(x0, y, s(90), s(30)), Part::Caption("Tamanho"), None);
+    add(rect(x0, y, s(90), s(30)), Part::Caption(tr("Tamanho")), None);
     let track_w = s(176);
     let track = rect(x0 + inner - track_w, y, track_w, s(30));
     add(track, Part::Track, None);
@@ -188,16 +193,21 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
     y += s(8);
     let row_h = s(36);
     let reminders = match m.reminders_on {
-        0 => "nenhum ligado".to_string(),
-        1 => "1 ligado".to_string(),
-        n => format!("{n} ligados"),
+        0 => tr("nenhum ligado").to_string(),
+        1 => tr("1 ligado").to_string(),
+        n => fill(tr("{} ligados"), &[&n]),
+    };
+    let water = match m.water {
+        0 => tr("nenhum hoje").to_string(),
+        n => fill(tr("{} hoje"), &[&n]),
     };
     let rows = [
-        (icon::MUTE, "Silenciar por 1 hora", Right::Switch(m.silenced), Action::Silence),
-        (icon::HIDE, "Esconder o mascote", Right::Switch(m.hidden), Action::Hide),
-        (icon::BELL, "Lembretes", Right::Note(reminders), Action::Reminders),
-        (icon::CALENDAR, "Resumo do dia", Right::Nothing, Action::Summary),
-        (icon::SETTINGS, "Configurações", Right::Chevron, Action::Settings),
+        (icon::WATER, tr("Bebi um copo d'água"), Right::Note(water), Action::Water),
+        (icon::MUTE, tr("Silenciar por 1 hora"), Right::Switch(m.silenced), Action::Silence),
+        (icon::HIDE, tr("Esconder o mascote"), Right::Switch(m.hidden), Action::Hide),
+        (icon::BELL, tr("Lembretes"), Right::Note(reminders), Action::Reminders),
+        (icon::CALENDAR, tr("Resumo do dia"), Right::Nothing, Action::Summary),
+        (icon::SETTINGS, tr("Configurações"), Right::Chevron, Action::Settings),
     ];
     for (glyph, label, right, action) in rows {
         add(rect(x0 - s(6), y, inner + s(12), row_h), Part::Row { glyph, label, right, danger: false }, Some(action));
@@ -206,7 +216,7 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
     y += s(4);
     add(rect(x0, y, inner, 1), Part::Divider, None);
     y += s(5);
-    let quit = Part::Row { glyph: icon::POWER, label: "Sair", right: Right::Nothing, danger: true };
+    let quit = Part::Row { glyph: icon::POWER, label: tr("Sair"), right: Right::Nothing, danger: true };
     add(rect(x0 - s(6), y, inner + s(12), row_h), quit, Some(Action::Quit));
     y += row_h + pad - s(4);
 
@@ -398,8 +408,8 @@ impl Flyout {
             }
             Part::Caption(text) => {
                 // Passando o mouse num mascote, a legenda mostra o nome dele.
-                let name = self.hovered_mascot.and_then(|i| self.model.mascots.get(i)).filter(|_| *text == "Mascote");
-                let caption = name.map_or(text.to_string(), |m| format!("Mascote · {}", m.name));
+                let name = self.hovered_mascot.and_then(|i| self.model.mascots.get(i)).filter(|_| *text == tr("Mascote"));
+                let caption = name.map_or(text.to_string(), |m| format!("{} · {}", tr("Mascote"), m.name));
                 c.text(small, &caption, r, theme::muted(), left)
             }
             Part::Mascot(i) => {
@@ -544,6 +554,7 @@ mod tests {
             silenced: false,
             hidden: false,
             reminders_on: 2,
+            water: 0,
             update: None,
         }
     }

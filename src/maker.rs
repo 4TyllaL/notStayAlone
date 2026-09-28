@@ -3,6 +3,7 @@
 //! automaticamente a partir dele. Lógica pura, sem Win32.
 
 use crate::{
+    lang::tr,
     sprite::{clean_name, Sheet, PIXELS, SPRITE},
     win::clean_line,
 };
@@ -42,11 +43,11 @@ impl Pose {
 
     pub fn label(self) -> &'static str {
         match self {
-            Pose::Idle => "Parado (a base)",
-            Pose::Sleep => "Dormindo",
-            Pose::Eat => "Comendo",
-            Pose::Happy => "Feliz",
-            Pose::Walk => "Andando",
+            Pose::Idle => tr("Parado (a base)"),
+            Pose::Sleep => tr("Dormindo"),
+            Pose::Eat => tr("Comendo"),
+            Pose::Happy => tr("Feliz"),
+            Pose::Walk => tr("Andando"),
         }
     }
 }
@@ -169,7 +170,7 @@ impl Drawing {
             }
         }
         if rows.len() < 6 || keys.is_empty() {
-            return Err("a IA não mandou um desenho válido. Tente de novo ou descreva de outro jeito.".into());
+            return Err(tr("a IA não mandou um desenho válido. Tente de novo ou descreva de outro jeito.").into());
         }
         let fallback = keys.iter().position(|&k| k == b'k').map_or(1, |i| i as u8 + 1);
         let top = SPRITE - rows.len(); // desenho curto: encosta embaixo
@@ -183,7 +184,7 @@ impl Drawing {
         }
         d.eyes = keys.iter().position(|&k| k == b'e').map(|i| i as u8 + 1);
         if d.name.is_empty() {
-            d.name = "Mascote da IA".into();
+            d.name = tr("Mascote da IA").into();
         }
         Ok(d)
     }
@@ -276,9 +277,9 @@ impl Drawing {
         key[HEART as usize] = b'h';
 
         let mut out = String::from("# Mascote criado no !StayAlone (Configurações → Criar mascote)\n");
-        out += &format!("name {}\n", one_line(&self.name, "Meu mascote"));
+        out += &format!("name {}\n", one_line(&self.name, tr("Meu mascote")));
         out += &format!("article {}\n", if self.female { "a" } else { "o" });
-        out += &format!("about {}\n\n", one_line(&self.about, "um mascote fofinho feito à mão"));
+        out += &format!("about {}\n\n", one_line(&self.about, tr("um mascote fofinho feito à mão")));
         for (i, rgb) in self.palette.iter().enumerate().skip(1) {
             out += &format!("color {} {:06x}\n", key[i] as char, rgb & 0xFF_FFFF);
         }
@@ -528,7 +529,7 @@ mod tests {
 
     #[test]
     fn existing_mascots_can_be_used_as_templates() {
-        for (id, src, _) in crate::pack::EMBEDDED {
+        for (id, src, ..) in crate::pack::EMBEDDED {
             let sheet = Sheet::parse(src).unwrap();
             let d = Drawing::from_sheet(&sheet, false).unwrap();
             let art = Art::parse(&d.to_mascot_txt()).unwrap_or_else(|e| panic!("{id}: {e}"));

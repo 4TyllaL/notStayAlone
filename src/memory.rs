@@ -7,7 +7,7 @@
 
 use std::{fs, path::PathBuf};
 
-use crate::{config::read_file, win::clean_line};
+use crate::{config::read_file, lang, win::clean_line};
 
 /// Quantos fatos ficam guardados (os mais antigos saem primeiro).
 const MAX_FACTS: usize = 30;
@@ -99,13 +99,30 @@ pub fn split_reply(reply: &str) -> (String, Vec<String>) {
 /// Parece senha, documento, cartão ou contato? Então não guarda.
 fn sensitive(fact: &str) -> bool {
     let lower = fact.to_lowercase();
-    let words = ["senha", "password", "cpf", "rg ", "cartão", "cartao", "conta bancária", "pix", "token", "chave"];
+    let words = [
+        "senha", "password", "cpf", "rg ", "cartão", "cartao", "conta bancária", "pix", "token", "chave", "credit card",
+        "bank account", "social security", "passport",
+    ];
     let long_number = fact.split(|c: char| !c.is_ascii_digit()).any(|digits| digits.len() >= 6);
     words.iter().any(|w| lower.contains(w)) || long_number || fact.contains('@')
 }
 
 /// Trecho do prompt com as lembranças e a instrução de marcar coisas novas.
 pub fn prompt(facts: &[String], today: &str) -> String {
+    if lang::is_english() {
+        let mut text = format!(
+            " Today is {today}. If the person tells you something personal worth remembering later (plans, \
+             likes, events like an exam or a trip), add at the end of your answer a separate line starting \
+             with \"LEMBRAR:\" (exactly this word) and the fact in a few words, in the third person. Never \
+             keep passwords, documents, health or financial data."
+        );
+        if !facts.is_empty() {
+            text += " What you remember about the person (date in parentheses; use it naturally, don't list it): ";
+            text += &facts.join("; ");
+            text += ".";
+        }
+        return text;
+    }
     let mut text = format!(
         " Hoje é {today}. Se a pessoa contar algo pessoal que valha lembrar depois (planos, gostos, \
          eventos como uma prova ou uma viagem), acrescente no fim da resposta uma linha separada \
