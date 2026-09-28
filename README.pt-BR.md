@@ -28,7 +28,8 @@ Na primeira vez, uma janela de boas-vindas ajuda a escolher o mascote, os lembre
 (opcional) a chave da IA. Depois o app **se atualiza sozinho**: uma vez por dia olha a última
 versão no GitHub e o painel oferece a nova. O download é conferido pelo SHA-256 da release e por
 uma assinatura Ed25519, feita com uma chave que nunca sai do PC de quem publica, antes
-de trocar o `.exe` (dá para desligar em Configurações).
+de trocar o `.exe`; aí ele mostra o que conferiu e o que mudou, e só instala se você disser sim
+(dá para desligar a procura em Configurações).
 
 ## Configurações
 

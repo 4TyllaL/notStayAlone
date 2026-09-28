@@ -34,7 +34,8 @@ The binary is not code-signed yet, so Windows SmartScreen may warn on first run
 After that, the app **updates itself**: once a day it checks the latest GitHub release, and the
 panel offers the new version. The download is verified against the release's SHA-256 and an
 Ed25519 signature made with a key that never leaves the maintainer's PC before it
-replaces the `.exe` (you can turn this off in Settings).
+replaces the `.exe`; then it shows what was checked and what changed, and only installs if you
+say yes (you can turn update checks off in Settings).
 
 ## Features
 

@@ -6,7 +6,9 @@
 //!    filho `--baixar-versao` baixa o .exe **só** do endereço de releases deste
 //!    repositório, confere o SHA-256 informado pelo GitHub e a assinatura Ed25519
 //!    (`dontStayAlone.exe.sig`) feita com a chave de quem publica, que não fica no GitHub.
-//! 3. O app renomeia o .exe em uso para `.old`, põe o novo no lugar e abre o novo
+//! 3. Com tudo conferido, o app mostra o que foi verificado e o que mudou, e só
+//!    instala se você confirmar (senão apaga o arquivo baixado).
+//! 4. O app renomeia o .exe em uso para `.old`, põe o novo no lugar e abre o novo
 //!    com `--atualizado <pid>`; o novo espera o antigo fechar e apaga o `.old`.
 //!
 //! O processo do mascote nunca abre conexões: só os filhos usam a rede.
@@ -23,6 +25,7 @@ use crate::{
     child,
     lang::{fill, tr},
     net, sha256,
+    win::clean_line,
 };
 
 pub const ARG_CHECK: &str = "--procurar-versao";
@@ -36,6 +39,9 @@ const ASSET: &str = "dontStayAlone.exe";
 const MAX_API: usize = 512 * 1024;
 const MAX_EXE: usize = 16 * 1024 * 1024;
 const MAX_SIG: usize = 1024;
+/// "O que mudou": no máximo tantos itens, cada um até tantos caracteres.
+const MAX_NOTES: usize = 6;
+const MAX_NOTE: usize = 140;
 
 /// Chave pública das releases (Ed25519). A privada fica só com quem publica
 /// (`cargo run --example assinar`): nem com acesso ao repositório dá para gerar um
@@ -45,25 +51,41 @@ const RELEASE_KEY: [u8; 32] = [
     0x20, 0x6c, 0x9d, 0x20, 0x99, 0x00, 0xe5, 0x52, 0xf8, 0xe7, 0x21, 0x18, 0x0b, 0x81, 0x25, 0x2a,
 ];
 
-/// Uma versão publicada: número, de onde baixar e o SHA-256 esperado.
+/// Uma versão publicada: número, de onde baixar, o SHA-256 esperado e o que mudou.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Release {
     pub version: String,
     pub url: String,
     pub sha256: String,
+    /// Itens de "o que mudou", um por linha, já sem Markdown (pode ser vazio).
+    pub notes: String,
 }
 
 impl Release {
-    /// Linha trocada entre o filho e o app: "versão url sha256".
+    /// Linha passada ao filho que baixa: "versão url sha256".
     fn to_line(&self) -> String {
         format!("{} {} {}", self.version, self.url, self.sha256)
     }
 
-    pub fn from_line(line: &str) -> Option<Release> {
+    fn from_line(line: &str) -> Option<Release> {
         let mut parts = line.split_whitespace();
         let (version, url, sha256) = (parts.next()?, parts.next()?, parts.next()?);
-        let release = Release { version: version.into(), url: url.into(), sha256: sha256.into() };
+        let release = Release { version: version.into(), url: url.into(), sha256: sha256.into(), notes: String::new() };
         release.trusted().then_some(release)
+    }
+
+    /// Resposta do filho que procura: a linha e, abaixo, o que mudou.
+    fn to_reply(&self) -> String {
+        format!("{}\n{}", self.to_line(), self.notes)
+    }
+
+    pub fn from_reply(reply: &str) -> Option<Release> {
+        let mut lines = reply.lines();
+        let mut release = Release::from_line(lines.next()?)?;
+        let notes: Vec<String> =
+            lines.map(|l| clean_line(l, MAX_NOTE + 1)).filter(|l| !l.is_empty()).take(MAX_NOTES).collect();
+        release.notes = notes.join("\n");
+        Some(release)
     }
 
     /// Endereço do repositório oficial e hash no formato certo.
@@ -111,6 +133,71 @@ fn signature_ok(key: &[u8; 32], version: &str, sha256: &str, sig: &[u8]) -> bool
     }
 }
 
+/// Tira o Markdown de um item: negrito/itálico, crases e links (fica o texto).
+fn plain(item: &str) -> String {
+    let mut out = String::new();
+    let mut rest = item;
+    while let Some(start) = rest.find('[') {
+        let after = &rest[start + 1..];
+        match after.find("](").and_then(|mid| after[mid..].find(')').map(|end| (mid, mid + end))) {
+            Some((mid, end)) => {
+                out.push_str(&rest[..start]);
+                out.push_str(&after[..mid]);
+                rest = &after[end + 1..];
+            }
+            None => break,
+        }
+    }
+    out.push_str(rest);
+    out.replace(['*', '`'], "")
+}
+
+/// "O que mudou": os itens (`- ...`) da primeira seção das notas que tem itens, só a
+/// primeira frase de cada um.
+fn summary(body: &str) -> String {
+    let mut items = Vec::new();
+    for line in body.lines().map(str::trim) {
+        if line.starts_with('#') && !items.is_empty() {
+            break;
+        }
+        let Some(item) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) else { continue };
+        let text = plain(item);
+        let text = text.split_once(". ").map_or(text.as_str(), |(first, _)| first).trim_end_matches('.');
+        let mut text = clean_line(text, MAX_NOTE);
+        if text.chars().count() == MAX_NOTE {
+            text.push('…');
+        }
+        if !text.is_empty() && items.len() < MAX_NOTES {
+            items.push(text);
+        }
+    }
+    items.join("\n")
+}
+
+/// O texto da pergunta antes de instalar: o que foi conferido e o que mudou.
+pub fn confirmation(release: &Release) -> String {
+    let short = format!("{}…{}", &release.sha256[..8], &release.sha256[56..]);
+    let mut text = format!(
+        "!StayAlone {} → {}\n\n✓ {}\n✓ {}\n✓ {}\n✓ {}",
+        current(),
+        release.version,
+        tr("Baixado das releases oficiais (github.com/4TyllaL/notStayAlone)"),
+        fill(tr("SHA-256 confere com o da release ({})"), &[&short]),
+        tr("Assinatura do !StayAlone válida (Ed25519)"),
+        tr("Versão mais nova que a instalada"),
+    );
+    if !release.notes.is_empty() {
+        text.push_str(&format!("\n\n{}\n", tr("O que mudou:")));
+        for note in release.notes.lines() {
+            text.push_str(&format!("• {note}\n"));
+        }
+    } else {
+        text.push('\n');
+    }
+    text.push_str(&format!("\n{}", tr("Instalar agora? O mascote fecha e volta em seguida, já na versão nova.")));
+    text
+}
+
 /// Lê a resposta da API de releases do GitHub.
 fn parse_release(api: &Json) -> Option<Release> {
     if api.get("draft") == Some(&Json::Bool(true)) || api.get("prerelease") == Some(&Json::Bool(true)) {
@@ -120,7 +207,8 @@ fn parse_release(api: &Json) -> Option<Release> {
     let asset = api.get("assets")?.as_array().iter().find(|a| a.get("name").and_then(Json::as_str) == Some(ASSET))?;
     let url = asset.get("browser_download_url")?.as_str()?.to_string();
     let sha256 = asset.get("digest")?.as_str()?.strip_prefix("sha256:")?.to_ascii_lowercase();
-    let release = Release { version, url, sha256 };
+    let notes = api.get("body").and_then(Json::as_str).map(summary).unwrap_or_default();
+    let release = Release { version, url, sha256, notes };
     release.trusted().then_some(release)
 }
 
@@ -136,7 +224,7 @@ pub fn serve_check() -> i32 {
         404 => Ok(None), // ainda sem releases
         other => Err(fill(tr("GitHub respondeu HTTP {}"), &[&other])),
     });
-    report(found.map(|release| release.map(|r| r.to_line()).unwrap_or_default()))
+    report(found.map(|release| release.map(|r| r.to_reply()).unwrap_or_default()))
 }
 
 /// Modo `--baixar-versao versão url sha256`: baixa, confere e escreve o caminho do arquivo.
@@ -194,13 +282,20 @@ fn folder() -> Option<PathBuf> {
 
 /// Procura versão nova num filho; a resposta chega à janela `to` com `msg`.
 pub fn check(to: windows_sys::Win32::Foundation::HWND, msg: u32) {
-    child::spawn(to, msg, || child::run(child::this_app(&[ARG_CHECK]), "", 4096), |reply| reply);
+    child::spawn(to, msg, || child::run(child::this_app(&[ARG_CHECK]), "", 8192), |reply| reply);
 }
 
 /// Baixa a versão `release` num filho; a resposta (caminho do arquivo) chega com `msg`.
 pub fn fetch(to: windows_sys::Win32::Foundation::HWND, msg: u32, release: &Release) {
     let line = release.to_line();
     child::spawn(to, msg, move || child::run(child::this_app(&[ARG_DOWNLOAD, &line]), "", 4096), |reply| reply);
+}
+
+/// Você disse "agora não": apaga o que foi baixado (só no lugar esperado).
+pub fn discard(downloaded: &str) {
+    if folder().map(|d| d.join(ASSET)).as_deref() == Some(std::path::Path::new(downloaded)) {
+        let _ = fs::remove_file(downloaded);
+    }
 }
 
 /// Troca o .exe em uso pelo baixado e abre o novo. Depois disso o app deve fechar.
@@ -260,7 +355,7 @@ mod tests {
 
     fn api(tag: &str, url: &str) -> Json {
         let text = format!(
-            r#"{{"tag_name":"{tag}","draft":false,"prerelease":false,"assets":[{{"name":"dontStayAlone.exe","browser_download_url":"{url}","digest":"sha256:{SHA}"}}]}}"#
+            r#"{{"tag_name":"{tag}","draft":false,"prerelease":false,"body":"Intro.\n\n## What changed\n\n- **Water goal** — set glasses. Log them.\n- See [the README](https://x/y) and `--ajuda`.\n\n## Download\n\n- ignored","assets":[{{"name":"dontStayAlone.exe","browser_download_url":"{url}","digest":"sha256:{SHA}"}}]}}"#
         );
         json::parse(&text).unwrap()
     }
@@ -275,8 +370,28 @@ mod tests {
     fn reads_the_github_release() {
         let url = "https://github.com/4TyllaL/notStayAlone/releases/download/v1.2.0/dontStayAlone.exe";
         let release = parse_release(&api("v1.2.0", url)).unwrap();
-        assert_eq!(release, Release { version: "1.2.0".into(), url: url.into(), sha256: SHA.into() });
-        assert_eq!(Release::from_line(&release.to_line()), Some(release));
+        let notes = "Water goal \u{2014} set glasses\nSee the README and --ajuda".to_string();
+        assert_eq!(release, Release { version: "1.2.0".into(), url: url.into(), sha256: SHA.into(), notes });
+        assert_eq!(Release::from_reply(&release.to_reply()), Some(release.clone()));
+        // O filho que baixa recebe só a linha.
+        assert_eq!(Release::from_line(&release.to_line()).map(|r| r.url), Some(release.url.clone()));
+        let text = confirmation(&release);
+        assert!(text.contains("→ 1.2.0") && text.contains("55cfd144…116c6ea9") && text.contains("• Water goal"));
+    }
+
+    #[test]
+    fn notes_are_short_and_plain() {
+        let body = format!("- {}\n- \u{202e}oi\u{0}\n- [x](y\n- 3\n- 4\n- 5\n- 6\n- 7", "a".repeat(500));
+        let notes = summary(&body);
+        let lines: Vec<&str> = notes.lines().collect();
+        assert_eq!(lines.len(), MAX_NOTES);
+        assert_eq!(lines[0].chars().count(), MAX_NOTE + 1);
+        assert_eq!(lines[1], "oi");
+        assert_eq!(lines[2], "[x](y");
+        // Uma resposta com linhas demais é aparada no app também.
+        let line = format!("1.2.0 https://github.com/4TyllaL/notStayAlone/releases/download/v1.2.0/dontStayAlone.exe {SHA}");
+        let reply = format!("{line}\n{}", "b\n".repeat(50));
+        assert_eq!(Release::from_reply(&reply).unwrap().notes.lines().count(), MAX_NOTES);
     }
 
     #[test]

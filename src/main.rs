@@ -1035,7 +1035,7 @@ impl App {
     unsafe fn on_update_checked(&mut self, reply: Reply) {
         self.update_busy = false;
         let manual = std::mem::take(&mut self.update_manual);
-        let release = match reply.and_then(|line| update::Release::from_line(&line).ok_or_else(|| tr("resposta inválida").to_string())) {
+        let release = match reply.and_then(|text| update::Release::from_reply(&text).ok_or_else(|| tr("resposta inválida").to_string())) {
             Ok(release) => release,
             // Sem internet ou GitHub fora do ar: tenta de novo mais tarde, sem incomodar.
             Err(e) if manual => return self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui procurar agora: {}"), &[&e])))),
@@ -1060,13 +1060,30 @@ impl App {
     }
 
     unsafe fn on_update_downloaded(&mut self, reply: Reply) {
-        self.update_busy = false;
         self.update_manual = false; // um pedido feito durante o download já foi respondido por ele
-        let installed = reply.and_then(|path| {
-            self.save_state();
-            update::install(&path)
-        });
-        match installed {
+        let path = match reply {
+            Ok(path) => path,
+            Err(e) => {
+                self.update_busy = false;
+                return self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e]))));
+            }
+        };
+        // Baixado e conferido: mostra o que foi verificado e o que mudou, e só instala se
+        // você quiser. `update_busy` segue ligado com a pergunta aberta (nada de baixar de novo).
+        let text = self.update.as_ref().map(update::confirmation).unwrap_or_default();
+        let answer = MessageBoxW(
+            self.hwnd,
+            w(&text).as_ptr(),
+            w(tr("Atualizar o !StayAlone")).as_ptr(),
+            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
+        );
+        self.update_busy = false;
+        if answer != IDYES {
+            update::discard(&path);
+            return self.speak(Topic::App, Some(tr("Tudo bem, fica para depois. O botão Atualizar continua no painel.").into()));
+        }
+        self.save_state();
+        match update::install(&path) {
             Ok(()) => {
                 DestroyWindow(self.hwnd); // a versão nova já está abrindo
             }
