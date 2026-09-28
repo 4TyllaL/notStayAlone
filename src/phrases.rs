@@ -31,6 +31,12 @@ pub enum Topic {
     BatteryLow,
     Charging,
     Typing,
+    Birthday,
+    Monday,
+    Friday,
+    Weekend,
+    /// Três horas usando o PC sem pausa.
+    NoBreak,
     /// Lembrete personalizado: o texto vem da configuração, não do arquivo de falas.
     Reminder,
     /// Resposta da conversa com IA (texto vem do plugin).
@@ -42,11 +48,12 @@ pub enum Topic {
 }
 
 /// Nomes no arquivo, na mesma ordem do enum `Topic`.
-const KEYS: [&str; 25] = [
+const KEYS: [&str; 30] = [
     "bom_dia", "boa_tarde", "boa_noite", "madrugada", "voltou", "saudade", "agua", "alongar",
     "olhos", "meia_noite", "carinho", "carinho_muito", "obrigado", "pomodoro_inicio",
     "pomodoro_pausa", "pomodoro_volta", "resumo", "silencio", "ola", "petisco", "cheio",
-    "bolinha_fim", "bateria_baixa", "carregando", "digitando",
+    "bolinha_fim", "bateria_baixa", "carregando", "digitando", "aniversario", "segunda", "sexta", "fim_de_semana",
+    "sem_pausa",
 ];
 
 #[derive(Clone)]

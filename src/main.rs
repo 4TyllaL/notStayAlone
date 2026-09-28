@@ -330,6 +330,8 @@ struct App {
     /// Procurando ou baixando versão nova agora.
     update_busy: bool,
     update_checked: Option<u64>,
+    /// Programa de reunião em primeiro plano (com a opção ligada).
+    meeting: bool,
 }
 
 impl App {
@@ -350,7 +352,7 @@ impl App {
         let bounds = bounds_at(POINT { x: 0, y: 0 }); // monitor principal
         mascot.drop_in(&bounds);
 
-        let (day, hour) = clock();
+        let (day, hour, _) = clock();
         let mut companion = Companion::new(config.companion.clone(), day);
         if let Some(state) = config::read_state() {
             companion.load_string(&state);
@@ -399,6 +401,7 @@ impl App {
             update: None,
             update_busy: false,
             update_checked: None,
+            meeting: false,
         }
     }
 
@@ -565,14 +568,18 @@ impl App {
             }
         }
 
-        let (day, hour) = clock();
+        let (day, hour, weekday) = clock();
+        // Em reunião (se você pediu), ele segura as falas como numa tela cheia.
+        self.meeting = self.config.quiet_in_meetings && system::meeting_in_front();
         let now = Now {
             secs: self.secs(),
             day,
             hour,
             idle_secs: idle_secs(),
             hidden: self.user_hidden,
-            busy: self.busy_hidden,
+            busy: self.busy_hidden || self.meeting,
+            weekday,
+            birthday: self.config.birthday == Some((day % 100, day / 100 % 100)),
         };
         for event in self.companion.update(&now) {
             match event {
@@ -1004,7 +1011,8 @@ impl App {
             return;
         }
         // Não interrompe: espera pousar, sair da tela cheia e você dar uma pausa na digitação.
-        if self.busy_hidden || !self.mascot.grounded() || self.press.is_some() || (topic != Topic::Chat && self.typing_now()) {
+        let interrupting = topic != Topic::Chat && (self.meeting || self.typing_now());
+        if self.busy_hidden || !self.mascot.grounded() || self.press.is_some() || interrupting {
             self.pending = Some((topic, text));
             return;
         }

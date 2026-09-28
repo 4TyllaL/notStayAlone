@@ -132,3 +132,27 @@ Carregando... que alívio!
 Tá voando no teclado, hein!
 Que foco! Tô torcendo por você.
 Nossa, quanta coisa! Vai lá!
+
+[aniversario]
+Feliz aniversário!! Hoje o dia é todo seu!
+Parabéns! Que seu ano seja incrível. Tô muito feliz de estar aqui com você!
+Hoje é seu dia! Posso ganhar um pedaço de bolo?
+
+[segunda]
+Segunda-feira! Vamos com calma, um passo de cada vez.
+Bom começo de semana! Tô aqui com você.
+Segunda de novo? A gente dá conta!
+
+[sexta]
+Sextou! Falta pouco pro fim de semana!
+Sexta-feira! Que tal fechar a semana com calma?
+É sexta! Você mandou bem essa semana.
+
+[fim_de_semana]
+Usando o PC no fim de semana? Não esquece de descansar também!
+Fim de semana é pra aproveitar. Que tal uma pausa lá fora?
+
+[sem_pausa]
+Faz umas 3 horas que você não para. Que tal uma pausa de verdade?
+Três horas direto! Levanta um pouquinho, bebe uma água, volta com energia.
+Ei, você não parou desde cedo. Seus olhos e suas costas agradecem uma pausa!

@@ -86,8 +86,12 @@ pub struct Now {
     pub idle_secs: u64,
     /// Mascote escondido pelo usuário: lembretes são descartados.
     pub hidden: bool,
-    /// App em tela cheia: lembretes esperam.
+    /// App em tela cheia (ou reunião): lembretes esperam.
     pub busy: bool,
+    /// Dia da semana (0 = domingo).
+    pub weekday: u32,
+    /// Hoje é o seu aniversário.
+    pub birthday: bool,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -98,11 +102,20 @@ pub struct Stats {
     pub water: u32,
     pub pets: u32,
     pub summary_shown: bool,
+    /// Falas da rotina já ditas hoje (bits `ROUTINE_*`).
+    pub routine_said: u32,
 }
+
+const ROUTINE_BIRTHDAY: u32 = 1;
+const ROUTINE_MONDAY: u32 = 2;
+const ROUTINE_FRIDAY: u32 = 4;
+const ROUTINE_WEEKEND: u32 = 8;
+/// Tempo de uso contínuo, sem pausa, que merece um puxão de orelha.
+const NO_BREAK_SECS: u64 = 3 * 3600;
 
 impl Stats {
     fn new(day: u32) -> Stats {
-        Stats { day, together_secs: 0, breaks: 0, water: 0, pets: 0, summary_shown: false }
+        Stats { day, together_secs: 0, breaks: 0, water: 0, pets: 0, summary_shown: false, routine_said: 0 }
     }
 }
 
@@ -136,6 +149,8 @@ pub struct Companion {
     last_pet: Option<u64>,
     last_fed: Option<u64>,
     last_typing: Option<u64>,
+    /// Tempo de uso desde a última pausa de verdade.
+    since_break: u64,
     /// Avisou que a bateria está baixa (e ainda não foi carregada).
     pub low_battery: bool,
 }
@@ -157,6 +172,7 @@ impl Companion {
             last_pet: None,
             last_fed: None,
             last_typing: None,
+            since_break: 0,
             low_battery: false,
         }
     }
@@ -246,6 +262,7 @@ impl Companion {
                 let gone = now.secs.saturating_sub(self.away_since);
                 if gone >= away_secs {
                     self.stats.breaks += 1;
+                    self.since_break = 0;
                     // Levantou: já alongou e descansou os olhos.
                     for (r, c) in self.settings.reminders.iter().zip(&mut self.counters) {
                         if matches!(r.kind, ReminderKind::Stretch | ReminderKind::Eyes) {
@@ -269,6 +286,7 @@ impl Companion {
         // Só conta como "juntos" enquanto você está usando o PC de fato.
         if now.idle_secs < 60 {
             self.stats.together_secs += dt;
+            self.since_break += dt;
             for c in &mut self.counters {
                 *c += dt;
             }
@@ -313,6 +331,14 @@ impl Companion {
         if quiet || now.busy {
             return events;
         }
+        // Rotina: no máximo uma fala por tema por dia, sem atropelar os lembretes.
+        if self.last_reminder.is_none_or(|t| now.secs >= t + REMINDER_GAP) {
+            if let Some(topic) = self.routine(now) {
+                self.last_reminder = Some(now.secs);
+                events.push(Event::Say(topic));
+                return events;
+            }
+        }
 
         if now.hour < 5 {
             match self.last_midnight {
@@ -331,6 +357,26 @@ impl Companion {
             events.push(Event::Say(Topic::Summary));
         }
         events
+    }
+
+    /// A fala da rotina que cabe agora (e a marca como dita).
+    fn routine(&mut self, now: &Now) -> Option<Topic> {
+        if self.since_break >= NO_BREAK_SECS {
+            self.since_break = 0;
+            return Some(Topic::NoBreak);
+        }
+        let candidates = [
+            (ROUTINE_BIRTHDAY, now.birthday && now.hour >= 7, Topic::Birthday),
+            (ROUTINE_MONDAY, now.weekday == 1 && (7..12).contains(&now.hour), Topic::Monday),
+            (ROUTINE_FRIDAY, now.weekday == 5 && now.hour >= 15, Topic::Friday),
+            (ROUTINE_WEEKEND, matches!(now.weekday, 0 | 6) && now.hour >= 10 && self.stats.together_secs >= 1800, Topic::Weekend),
+        ];
+        let (bit, _, topic) = candidates.into_iter().find(|&(bit, due, _)| due && self.stats.routine_said & bit == 0)?;
+        self.stats.routine_said |= bit;
+        if topic == Topic::Birthday {
+            self.bump(10.0);
+        }
+        Some(topic)
     }
 
     /// Carinho. `roll` (0..100) decide se ele responde falando.
@@ -399,8 +445,8 @@ impl Companion {
     pub fn save_string(&self) -> String {
         let s = &self.stats;
         format!(
-            "day={}\ntogether={}\nbreaks={}\nwater={}\npets={}\nsummary={}\naffection={:.1}\n",
-            s.day, s.together_secs, s.breaks, s.water, s.pets, s.summary_shown as u8, self.affection
+            "day={}\ntogether={}\nbreaks={}\nwater={}\npets={}\nsummary={}\nroutine={}\naffection={:.1}\n",
+            s.day, s.together_secs, s.breaks, s.water, s.pets, s.summary_shown as u8, s.routine_said, self.affection
         )
     }
 
@@ -418,6 +464,7 @@ impl Companion {
                 "water" => saved.water = n as u32,
                 "pets" => saved.pets = n as u32,
                 "summary" => saved.summary_shown = n != 0,
+                "routine" => saved.routine_said = n as u32,
                 "affection" => {
                     if let Ok(a) = value.parse::<f32>() {
                         self.affection = a.clamp(0.0, 100.0);
@@ -517,7 +564,8 @@ mod tests {
     }
 
     fn now(secs: u64, idle: u64) -> Now {
-        Now { secs, day: DAY, hour: 14, idle_secs: idle, hidden: false, busy: false }
+        // Uma quarta-feira qualquer, 14h.
+        Now { secs, day: DAY, hour: 14, idle_secs: idle, hidden: false, busy: false, weekday: 3, birthday: false }
     }
 
     /// Simula uso ativo de `from` até `to`, de 2 em 2 s, juntando os eventos.
@@ -604,6 +652,47 @@ mod tests {
         c.update(&Now { day: DAY + 1, ..now(0, 0) });
         assert_eq!(c.stats.breaks, 0);
         assert_eq!(c.affection, 80.0);
+    }
+
+    fn quiet_settings() -> Settings {
+        let mut s = settings();
+        s.reminders.iter_mut().for_each(|r| r.on = false);
+        s
+    }
+
+    #[test]
+    fn friday_is_celebrated_once_in_the_afternoon() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        let friday = |t, hour| Now { weekday: 5, hour, ..now(t, 0) };
+        assert!(c.update(&friday(0, 10)).is_empty());
+        assert_eq!(c.update(&friday(10, 16)), vec![Event::Say(Topic::Friday)]);
+        let later: Vec<_> = (12..4000).step_by(2).flat_map(|t| c.update(&friday(t, 17))).collect();
+        assert!(!later.contains(&Event::Say(Topic::Friday)));
+    }
+
+    #[test]
+    fn birthday_comes_first_and_brings_hearts() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        let before = c.affection;
+        let party = Now { birthday: true, weekday: 5, hour: 16, ..now(0, 0) };
+        assert_eq!(c.update(&party), vec![Event::Say(Topic::Birthday)]);
+        assert!(c.affection > before);
+    }
+
+    #[test]
+    fn three_hours_without_a_break_gets_a_nudge() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        let events = active(&mut c, 0, 3 * 3600 + 30);
+        assert_eq!(events.iter().filter(|e| **e == Event::Say(Topic::NoBreak)).count(), 1);
+    }
+
+    #[test]
+    fn routine_flags_survive_a_restart() {
+        let mut c = Companion::new(quiet_settings(), DAY);
+        c.update(&Now { weekday: 5, hour: 16, ..now(0, 0) });
+        let mut d = Companion::new(quiet_settings(), DAY);
+        d.load_string(&c.save_string());
+        assert!(d.update(&Now { weekday: 5, hour: 16, ..now(200, 0) }).is_empty());
     }
 
     #[test]
