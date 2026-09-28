@@ -109,7 +109,7 @@ pub fn prompt(facts: &[String], today: &str) -> String {
     let mut text = format!(
         " Hoje é {today}. Se a pessoa contar algo pessoal que valha lembrar depois (planos, gostos, \
          eventos como uma prova ou uma viagem), acrescente no fim da resposta uma linha separada \
-         começando com \"LEMBRAR:\" e o fato em poucas palavras, na terceira pessoa. Nunca guarde \
+         começando com \"LEMBRAR:\" e o fato em poucas palavras, na terceira pessoa e com acentos. Nunca guarde \
          senhas, documentos, dados de saúde ou financeiros."
     );
     if !facts.is_empty() {
