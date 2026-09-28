@@ -72,7 +72,7 @@ fn git(args: &[&str]) -> Option<String> {
 fn commit() -> String {
     match git(&["rev-parse", "--short=12", "HEAD"]) {
         Some(hash) if !hash.is_empty() => {
-            let dirty = git(&["status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
+            let dirty = git(&["--no-optional-locks", "status", "--porcelain", "--untracked-files=no"]).is_some_and(|s| !s.is_empty());
             if dirty { format!("{hash}-dirty") } else { hash }
         }
         _ => "?".into(),
