@@ -7,9 +7,11 @@
   - Nunca usa os seus dados: APPDATA aponta para uma pasta dentro de -Out.
   - Se recusa a rodar com outro !StayAlone aberto (só uma cópia roda por vez; o
     teste acabaria mexendo na sua).
-  - As fotos são só das janelas do app. Janelas transparentes (painel, mascote)
-    são fotografadas sobre um fundo preto e depois branco, e a transparência é
-    calculada a partir das duas: nada do que está na sua tela aparece.
+  - As fotos são só das janelas do app. Janelas transparentes (painel, mascote,
+    balão) são fotografadas sobre um fundo preto e depois branco, e a transparência
+    é calculada a partir das duas: nada do que está na sua tela aparece. A foto fica
+    dentro da área útil do monitor (a barra de tarefas, sempre por cima, fica de fora);
+    evite deixar outras janelas "sempre visíveis" abertas durante o teste.
 
   Com -Docs, também atualiza as imagens do README em docs/.
 
@@ -78,6 +80,18 @@ public static class Smoke {
         Bitmap bmp = new Bitmap(r.Width, r.Height, PixelFormat.Format32bppArgb);
         using (Graphics g = Graphics.FromImage(bmp)) g.CopyFromScreen(r.Location, Point.Empty, r.Size);
         return bmp;
+    }
+
+    /// A moldura de `ring` pixels (fora da janela, só fundo) está toda transparente?
+    /// Se não, alguma outra janela entrou na foto.
+    /// Os lados recortados pela borda da área útil (sem margem) não entram na conta.
+    public static bool EdgesClear(Bitmap b, int ring, bool left, bool top, bool right, bool bottom) {
+        for (int y = 0; y < b.Height; y++)
+            for (int x = 0; x < b.Width; x++) {
+                bool edge = (left && x < ring) || (top && y < ring) || (right && x >= b.Width - ring) || (bottom && y >= b.Height - ring);
+                if (edge && b.GetPixel(x, y).A != 0) return false;
+            }
+        return true;
     }
 
     /// A mesma área sobre fundo preto e sobre fundo branco → imagem com transparência.
@@ -159,19 +173,26 @@ function Save($bmp, $name, [switch]$ForDocs) {
 function Shoot-Layered($hwnd, $name, [switch]$ForDocs, $margin = 24) {
     $r = [Smoke]::Rect($hwnd)
     $area = [Drawing.Rectangle]::Inflate($r, $margin, $margin)
-    $area.Intersect([Windows.Forms.SystemInformation]::VirtualScreen) # só o que existe na tela
+    # Só a área útil do monitor: a barra de tarefas fica sempre por cima e apareceria na foto.
+    $area.Intersect([Windows.Forms.Screen]::FromRectangle($r).WorkingArea)
     $form = New-Object Windows.Forms.Form
     $form.FormBorderStyle = "None"; $form.ShowInTaskbar = $false; $form.StartPosition = "Manual"
     $form.Bounds = $area
     $shots = @{}
     foreach ($color in "Black", "White") {
         $form.BackColor = [Drawing.Color]::$color
-        [Smoke]::SetWindowPos($form.Handle, [IntPtr]::Zero, $area.X, $area.Y, $area.Width, $area.Height, 0x0050) | Out-Null # SHOWWINDOW|NOACTIVATE
+        # Logo abaixo da janela fotografada: fica acima de todas as outras (inclusive as
+        # "sempre visíveis" que estejam abaixo dela), então só a janela do app aparece.
+        [Smoke]::SetWindowPos($form.Handle, $hwnd, $area.X, $area.Y, $area.Width, $area.Height, 0x0050) | Out-Null # SHOWWINDOW|NOACTIVATE
         $form.Refresh(); [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 300
         $shots[$color] = [Smoke]::Screen($area)
     }
     $form.Dispose()
-    Save ([Smoke]::Unmatte($shots["Black"], $shots["White"])) $name -ForDocs:$ForDocs
+    $image = [Smoke]::Unmatte($shots["Black"], $shots["White"])
+    # Só guarda se a moldura saiu limpa: senão, algo da sua tela entrou na foto.
+    $clear = [Smoke]::EdgesClear($image, 2, $area.Left -lt $r.Left, $area.Top -lt $r.Top, $area.Right -gt $r.Right, $area.Bottom -gt $r.Bottom)
+    Check $clear "foto $name só com a janela do app"
+    if ($clear) { Save $image $name -ForDocs:$ForDocs }
 }
 
 function Open-Panel {
@@ -280,6 +301,23 @@ try {
     }
     Stop-App
 
+    Write-Host "5. Procurar atualização (consulta o GitHub)"
+    Start-App "atualizacao" "mascot=calcifer`nlanguage=pt`nupdates=off`n"
+    Start-Sleep -Seconds 4 # deixa o "boa tarde" da abertura passar
+    Run-Exe "--configurar"
+    $s = WaitFor "StayAloneSettings"
+    [Smoke]::PostMessageW($s, 0x0111, [IntPtr]182, [IntPtr]::Zero) | Out-Null # botão "Procurar atualização"
+    $bubble = [IntPtr]::Zero
+    $until = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $until) {
+        Start-Sleep -Seconds 1
+        $bubble = Find "StayAloneBubble"
+        if ($bubble -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($bubble)) { break }
+    }
+    Check ($bubble -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($bubble)) "o mascote respondeu à procura de atualização"
+    if ($bubble -ne [IntPtr]::Zero) { Shoot-Layered $bubble "update-check" }
+    Stop-App
+
     if ($Docs) {
         Write-Host "4. Imagens do README (docs/)"
         $today = Get-Date
@@ -298,7 +336,10 @@ try {
         # Aniversário hoje: chapéu de festa.
         Start-App "docs-hat" ("mascot=calcifer`nlanguage=en`nupdates=off`nbirthday={0:dd}/{0:MM}`n" -f $today)
         Start-Sleep -Seconds 2
-        Shoot-Layered (Find "StayAloneMascot") "mascot-hat" -ForDocs -margin 4
+        $m = Find "StayAloneMascot"
+        [Smoke]::PostMessageW($m, 0x8002, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # fecha o balão de parabéns
+        Start-Sleep -Seconds 1
+        Shoot-Layered $m "mascot-hat" -ForDocs -margin 4
         Stop-App
     }
 }
