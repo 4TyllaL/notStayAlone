@@ -18,11 +18,13 @@ $Toolchain = '1.98.1-x86_64-pc-windows-msvc'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
-function Run([string] $what) {
-    # Roda um comando nativo e para se ele falhar.
-    Write-Host "> $what" -ForegroundColor Cyan
-    cmd /c "$what 2>&1"
-    if ($LASTEXITCODE) { throw "falhou: $what" }
+function Run {
+    # Roda um programa direto (sem `cmd`, que pode não ser o do Windows no PATH) e para se
+    # ele falhar. Nas chamadas, '--' vai entre aspas: solto, o PowerShell o engole.
+    $program, $rest = $args
+    Write-Host "> $program $rest" -ForegroundColor Cyan
+    & $program @rest
+    if ($LASTEXITCODE) { throw "falhou: $program $rest" }
 }
 function Sha256([string] $path) { (Get-FileHash $path -Algorithm SHA256).Hash.ToLower() }
 
@@ -41,12 +43,12 @@ $rustflags = (Select-String -Path .cargo/config.toml -Pattern '^rustflags = (.+)
 $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { "$env:USERPROFILE\.cargo" }
 $remap = "--remap-path-prefix=$cargoHome=/cargo", "--remap-path-prefix=$root=/src"
 $env:CARGO_ENCODED_RUSTFLAGS = ($rustflags + $remap) -join [char]0x1f
-Run "rustup toolchain install $Toolchain --profile minimal --component clippy"
+Run rustup toolchain install $Toolchain --profile minimal --component clippy
 
 # --- build e testes ---------------------------------------------------------------
-Run "cargo +$Toolchain clippy --release --all-targets -- -D warnings"
-Run "cargo +$Toolchain test --release"
-Run "cargo +$Toolchain build --release"
+Run cargo +$Toolchain clippy --release --all-targets '--' -D warnings
+Run cargo +$Toolchain test --release
+Run cargo +$Toolchain build --release
 $exe = 'target\release\dontStayAlone.exe'
 & .github/scripts/check-exe.ps1 -Exe $exe -Version $Version
 
@@ -57,8 +59,8 @@ if ($text -notmatch "$short(?!-dirty)") { throw "o .exe não traz o commit $shor
 if ($text.Contains($env:USERPROFILE)) { throw "o .exe traz o caminho $env:USERPROFILE" }
 
 # --- assinatura da atualização (Ed25519, chave offline) ---------------------------
-Run "cargo +$Toolchain run --release --example assinar -- $Version $exe"
-Run "cargo +$Toolchain test --release -- --ignored release_is_signed"
+Run cargo +$Toolchain run --release --example assinar '--' $Version $exe
+Run cargo +$Toolchain test --release '--' --ignored release_is_signed
 
 # --- BUILDINFO --------------------------------------------------------------------
 $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe))
@@ -105,6 +107,6 @@ $buildinfo = 'target\release\BUILDINFO.txt'
 Write-Host $info
 
 # --- publicação -------------------------------------------------------------------
-$assets = "$exe $exe.sig $buildinfo"
-$create = "gh release create v$Version $assets --target $commit --title `"!StayAlone $Version`" --notes-file $notes"
-if ($Publish) { Run $create } else { Write-Host "Tudo pronto. Para publicar:`n  $create" -ForegroundColor Green }
+$create = @('release', 'create', "v$Version", $exe, "$exe.sig", $buildinfo, '--target', $commit,
+    '--title', "!StayAlone $Version", '--notes-file', $notes)
+if ($Publish) { Run gh @create } else { Write-Host "Tudo pronto. Para publicar: gh $create" -ForegroundColor Green }
