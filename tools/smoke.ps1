@@ -47,11 +47,18 @@ public static class Smoke {
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")] public static extern IntPtr FindTitled(string c, string t);
+    [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);
+    /// O balão põe o que está falando no título da janela.
+    public static string Text(IntPtr h) { var s = new System.Text.StringBuilder(1024); GetWindowTextW(h, s, 1024); return s.ToString(); }
     [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public int dx, dy; public uint data, flags, time; public IntPtr extra; public uint pad1, pad2; }
 
     /// "Movimento" de mouse de zero pixel: o Windows conta como uso do PC (os
     /// lembretes só contam tempo com alguém usando), mas o cursor não sai do lugar.
+    /// Para o app, uso sem o cursor andar é digitação: ele segura os balões até 2,5 s
+    /// depois do último toque. Por isso os toques têm que ser espaçados (ver `Use-Pc`).
     public static void Nudge() {
         INPUT[] i = new INPUT[1];
         i[0].type = 0; i[0].flags = 0x0001; // INPUT_MOUSE, MOUSEEVENTF_MOVE
@@ -129,6 +136,28 @@ function WaitFor($class, $seconds = 5) {
     [IntPtr]::Zero
 }
 function Lparam($x, $y) { [IntPtr]($y * 65536 + $x) }
+function Bubble-Text {
+    $b = Find "StayAloneBubble"
+    if ($b -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($b)) { [Smoke]::Text($b) } else { $null }
+}
+# Espera o balão sumir (senão ele entra na foto de outra janela).
+function Wait-NoBubble($seconds = 15) {
+    $until = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $until -and (Bubble-Text)) { Start-Sleep -Milliseconds 300 }
+}
+# "Usa o PC" por `seconds`: um toque a cada 6 s. Depois de um toque o app acha que você
+# está digitando por 2,5 s e segura os balões; ele confere a cada 2 s, então com 6 s entre
+# os toques sempre sobra uma conferência livre. Para quando `until` devolver algo.
+function Use-Pc($seconds, [scriptblock]$until = { $null }) {
+    $end = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $end) {
+        [Smoke]::Nudge()
+        Start-Sleep -Seconds 6
+        $found = & $until
+        if ($found) { return $found }
+    }
+    $null
+}
 
 # --- o app numa pasta isolada ---------------------------------------------------------
 
@@ -230,6 +259,40 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     Start-Sleep -Milliseconds 500
 }
 
+# Ligar um plugin de terceiros: a pergunta diz "Acesso completo" e mostra o SHA-256 do
+# arquivo; responder "Não" deixa o plugin desligado. Lê o texto da pergunta (sem foto).
+function Check-PluginApproval {
+    Run-Exe "--configurar"
+    $s = WaitFor "StayAloneSettings"
+    if ($s -eq [IntPtr]::Zero) { Check $false "Configurações abriu (plugins)"; return }
+    Start-Sleep -Milliseconds 800
+    $y = 191 + 44 * 4 # página Plugins
+    [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
+    [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
+    Start-Sleep -Milliseconds 700
+    $list = [Smoke]::GetDlgItem($s, 160)
+    # Caixinha da 2ª linha (a 1ª é a conversa nativa, que não pergunta nada).
+    [Smoke]::PostMessageW($list, 0x0201, [IntPtr]1, (Lparam 10 60)) | Out-Null
+    [Smoke]::PostMessageW($list, 0x0202, [IntPtr]0, (Lparam 10 60)) | Out-Null
+    $dlg = [IntPtr]::Zero
+    $until = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $until -and $dlg -eq [IntPtr]::Zero) {
+        Start-Sleep -Milliseconds 200
+        $dlg = [Smoke]::FindTitled("#32770", "!StayAlone")
+    }
+    Check ($dlg -ne [IntPtr]::Zero) "ligar um plugin pede confirmação"
+    if ($dlg -ne [IntPtr]::Zero) {
+        $text = [Smoke]::Text([Smoke]::GetDlgItem($dlg, 0xFFFF))
+        $hash = (Get-FileHash "$script:data\StayAlone\plugins\curiosidades\curiosidades.ps1").Hash.ToLower()
+        Check ($text -match "Acesso completo") "a pergunta avisa que o acesso é completo"
+        Check ($text -match "SHA-256: $hash") "a pergunta mostra o SHA-256 do arquivo"
+        [Smoke]::PostMessageW($dlg, 0x0111, [IntPtr]7, [IntPtr]::Zero) | Out-Null # Não
+        Start-Sleep -Milliseconds 500
+    }
+    [Smoke]::PostMessageW($s, 0x0111, [IntPtr]1, [IntPtr]::Zero) | Out-Null # Salvar
+    Start-Sleep -Milliseconds 800
+    Check ((Get-Content "$script:data\StayAlone\config.ini" -Raw) -notmatch "curiosidades") "respondendo Não, o plugin fica desligado"
+}
 $pages = [ordered]@{ 0 = "general"; 1 = "reminders"; 2 = "chat"; 3 = "maker"; 4 = "plugins"; 5 = "gallery"; 6 = "about" }
 
 try {
@@ -254,6 +317,7 @@ try {
     Write-Host "2. Água e painel"
     Run-Exe "--agua"; Start-Sleep -Seconds 1
     Run-Exe "--agua"; Start-Sleep -Seconds 1
+    Wait-NoBubble
     $f = Open-Panel
     Check ($f -ne [IntPtr]::Zero) "painel abriu"
     if ($f -ne [IntPtr]::Zero) { Shoot-Layered $f "panel-water"; Close-Panel $f }
@@ -263,6 +327,7 @@ try {
     Write-Host "3. Configurações em português e em inglês"
     Start-App "pt" "mascot=calcifer`nlanguage=pt`ntheme=light`nupdates=off`n"
     Shoot-Settings "pt-" $pages
+    Check-PluginApproval
     Stop-App
     Check ((Get-Content "$script:data\StayAlone\config.ini" -Raw) -notmatch "language=en") "português continua português"
     Start-App "en" "mascot=calcifer`nlanguage=en`ntheme=light`nupdates=off`n"
@@ -277,24 +342,28 @@ try {
     $c = Find "StayAloneChatInput"
     if ($c -ne [IntPtr]::Zero) { [Smoke]::PostMessageW($c, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null }
     # O lembrete de olhos (1 min de uso) aparece; um clique no balão começa a pausa guiada.
-    # O primeiro balão pode ser o "boa tarde" da abertura: o lembrete só vem depois de
-    # 1 minuto de uso, então a busca começa perto disso.
-    $bubble = [IntPtr]::Zero
-    $start = Get-Date
-    while (((Get-Date) - $start).TotalSeconds -lt 50) { [Smoke]::Nudge(); Start-Sleep -Seconds 2 }
-    $until = (Get-Date).AddSeconds(100)
-    while ((Get-Date) -lt $until) {
-        [Smoke]::Nudge()
-        $bubble = Find "StayAloneBubble"
-        if ($bubble -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($bubble)) { break }
-        Start-Sleep -Seconds 2
-    }
-    Check ($bubble -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($bubble)) "lembrete de olhos apareceu"
-    if ($bubble -ne [IntPtr]::Zero) {
+    # Outros balões (o "boa tarde" da abertura, por exemplo) são reconhecidos pelo texto.
+    $eyes = @(Get-Content "$PSScriptRoot\..\assets\phrases.txt" -Encoding UTF8 |
+        ForEach-Object -Begin { $in = $false } -Process {
+            if ($_ -match '^\[') { $in = $_ -eq '[olhos]' } elseif ($in -and $_.Trim()) { $_.Trim() }
+        })
+    Check ($eyes.Count -gt 0) "falas de [olhos] lidas de assets/phrases.txt"
+    # O balão junta a fala a um convite ("(Clique e eu te guio!)"): compara o começo.
+    $said = Use-Pc 150 { $t = Bubble-Text; if ($t -and ($eyes | Where-Object { $t.StartsWith($_) })) { $t } }
+    $bubble = Find "StayAloneBubble"
+    Check ($null -ne $said) "lembrete de olhos apareceu"
+    if ($said) {
         Shoot-Layered $bubble "reminder-eyes"
         [Smoke]::PostMessageW($m, 0x8002, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null # clique no balão
-        Start-Sleep -Seconds 3
-        Check ([Smoke]::IsWindowVisible($bubble)) "pausa guiada começou"
+        # Espera o balão da pausa (se você digitar, o app segura o balão um pouco).
+        $guide = $null
+        $until = (Get-Date).AddSeconds(10)
+        while ((Get-Date) -lt $until) {
+            Start-Sleep -Milliseconds 500
+            $guide = Bubble-Text
+            if ($guide -and $guide -ne $said) { break }
+        }
+        Check ($guide -and $guide -ne $said) "pausa guiada começou ($guide)"
         Shoot-Layered $bubble "guide-eyes"
         Start-Sleep -Seconds 24
         Shoot-Layered $bubble "guide-done"
@@ -308,7 +377,7 @@ try {
     $s = WaitFor "StayAloneSettings"
     [Smoke]::PostMessageW($s, 0x0111, [IntPtr]182, [IntPtr]::Zero) | Out-Null # botão "Procurar atualização"
     $bubble = [IntPtr]::Zero
-    $until = (Get-Date).AddSeconds(20)
+    $until = (Get-Date).AddSeconds(40)
     while ((Get-Date) -lt $until) {
         Start-Sleep -Seconds 1
         $bubble = Find "StayAloneBubble"

@@ -127,6 +127,8 @@ impl Bubble {
         }
 
         canvas.present(self.hwnd, Some((left, top)));
+        // O texto também vira o título da janela: leitores de tela (e o teste de tela) leem.
+        SetWindowTextW(self.hwnd, wide.as_ptr());
         ShowWindow(self.hwnd, SW_SHOWNOACTIVATE);
         self.topic = Some(topic);
 
