@@ -10,7 +10,10 @@ use std::{
 use windows_sys::Win32::{Foundation::ERROR_SUCCESS, System::Registry::*};
 
 use crate::companion::{Reminder, ReminderKind, Settings};
-use crate::plugins::{Enabled, NATIVE_ID};
+use crate::{
+    folders::Access,
+    plugins::{Enabled, NATIVE_ID},
+};
 use crate::lang::tr;
 use crate::win::{clean_line, w};
 
@@ -239,14 +242,22 @@ impl Config {
                 "theme" => config.theme = Theme::ALL.into_iter().find(|t| t.key() == value).unwrap_or(Theme::Auto),
                 "language" => config.language = Language::ALL.into_iter().find(|l| l.key() == value).unwrap_or(Language::Auto),
                 "plugins" => plugins_saved = true,
-                // plugin=id|impressão digital[|internet] (o nativo não tem)
+                // plugin=id|impressão digital[|internet][|r=pasta][|w=pasta] (o nativo não tem)
                 "plugin" => {
                     let mut parts = value.split('|');
                     let (id, fingerprint) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-                    let internet = parts.next() == Some("internet");
+                    let (mut internet, mut folders) = (false, Vec::new());
+                    for part in parts {
+                        match part.split_once('=') {
+                            None if part == "internet" => internet = true,
+                            Some(("r", path)) if !path.is_empty() => folders.push(Access { path: path.into(), write: false }),
+                            Some(("w", path)) if !path.is_empty() => folders.push(Access { path: path.into(), write: true }),
+                            _ => {}
+                        }
+                    }
                     let fingerprint_ok = fingerprint.len() == 64 && fingerprint.bytes().all(|b| b.is_ascii_hexdigit());
                     if (id == NATIVE_ID || fingerprint_ok) && !config.plugins.iter().any(|e| e.id == id) {
-                        config.plugins.push(Enabled { id: id.to_string(), fingerprint: fingerprint.to_lowercase(), internet });
+                        config.plugins.push(Enabled { id: id.to_string(), fingerprint: fingerprint.to_lowercase(), internet, folders });
                     }
                 }
                 "away_minutes" => config.companion.away_minutes = number.unwrap_or(5).clamp(1, 120),
@@ -286,7 +297,7 @@ impl Config {
             }
         }
         if !plugins_saved {
-            config.plugins = vec![Enabled { id: NATIVE_ID.into(), fingerprint: String::new(), internet: false }];
+            config.plugins = vec![Enabled { id: NATIVE_ID.into(), ..Default::default() }];
         }
         config
     }
@@ -357,13 +368,19 @@ impl Config {
             on_off(self.chat_hotkey),
             on_off(self.accessories)
         );
-        text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256[|internet]\nplugins=\n";
+        text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256[|internet][|r=pasta lida][|w=pasta gravada]\nplugins=\n";
         for e in &self.plugins {
-            text += &match (e.fingerprint.is_empty(), e.internet) {
-                (true, _) => format!("plugin={}\n", e.id),
-                (false, false) => format!("plugin={}|{}\n", e.id, e.fingerprint),
-                (false, true) => format!("plugin={}|{}|internet\n", e.id, e.fingerprint),
-            };
+            text += &format!("plugin={}", e.id);
+            if !e.fingerprint.is_empty() {
+                text += &format!("|{}", e.fingerprint);
+                if e.internet {
+                    text += "|internet";
+                }
+                for a in &e.folders {
+                    text += &format!("|{}={}", if a.write { "w" } else { "r" }, a.path);
+                }
+            }
+            text += "\n";
         }
         text
     }
@@ -564,11 +581,20 @@ mod tests {
 
     #[test]
     fn plugins_round_trip_and_default_to_native_chat() {
-        assert_eq!(Config::parse("").plugins, vec![Enabled { id: NATIVE_ID.into(), fingerprint: String::new(), internet: false }]);
+        assert_eq!(Config::parse("").plugins, vec![Enabled { id: NATIVE_ID.into(), ..Default::default() }]);
         let mut c = Config::parse("");
         c.plugins = vec![
-            Enabled { id: "clima".into(), fingerprint: "ab".repeat(32), internet: false },
-            Enabled { id: "tempo".into(), fingerprint: "cd".repeat(32), internet: true },
+            Enabled { id: "clima".into(), fingerprint: "ab".repeat(32), ..Default::default() },
+            Enabled { id: "tempo".into(), fingerprint: "cd".repeat(32), internet: true, ..Default::default() },
+            Enabled {
+                id: "notas".into(),
+                fingerprint: "ef".repeat(32),
+                internet: false,
+                folders: vec![
+                    Access { path: r"C:\Users\ana\Documents\Notas".into(), write: false },
+                    Access { path: r"D:\Fotos = férias".into(), write: true },
+                ],
+            },
         ];
         assert_eq!(Config::parse(&c.to_text()).plugins, c.plugins);
         c.plugins.clear(); // tudo desligado continua desligado

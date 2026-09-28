@@ -2,7 +2,8 @@
 //! (`StayAlone.Plugin.<id>`), o mesmo isolamento dos apps da Microsoft Store:
 //! - arquivos: só **lê** a pasta do plugin e lê/grava a pasta de dados dele
 //!   (`STAYALONE_DADOS`); documentos, área de trabalho, %APPDATA% e o resto da sua conta
-//!   ficam fora de alcance;
+//!   ficam fora de alcance, menos as pastas que você aprovar (`allow_folder`), cada uma
+//!   só para leitura ou para leitura e escrita;
 //! - rede: nenhuma, a não ser que o `plugin.ini` peça (`internet = sim`) e você aprove;
 //! - ambiente: variáveis mínimas (nada de chaves de API em variáveis de ambiente);
 //! - herda só os três pipes (stdin, stdout, stderr), nenhum outro handle do app.
@@ -37,6 +38,8 @@ use windows_sys::{
 const INTERNET_CLIENT: &str = "S-1-15-3-1";
 const SE_GROUP_ENABLED: u32 = 0x4;
 const FILE_READ_EXECUTE: u32 = 0x0012_00A9; // FILE_GENERIC_READ | FILE_GENERIC_EXECUTE
+/// Ler, gravar, criar e apagar (o "Modificar" das propriedades da pasta), sem mudar permissões.
+const FILE_MODIFY: u32 = 0x0013_01BF;
 const ERROR_ALREADY_EXISTS_HR: i32 = 0x8007_00B7_u32 as i32;
 
 /// O que rodar e com que permissões.
@@ -132,8 +135,9 @@ unsafe fn container_folder(sid: PSID) -> Result<PathBuf, String> {
     Ok(folder)
 }
 
-/// Dá ao AppContainer leitura e execução na pasta do plugin (herdada pelos arquivos).
-unsafe fn grant_read(folder: &Path, sid: PSID) -> Result<(), String> {
+/// Muda a permissão do AppContainer numa pasta (herdada por tudo dentro dela):
+/// `GRANT_ACCESS` soma, `SET_ACCESS` troca a que ele tinha, `REVOKE_ACCESS` tira.
+unsafe fn set_access(folder: &Path, sid: PSID, mask: u32, mode: ACCESS_MODE) -> Result<(), String> {
     let path = wide(folder);
     let (mut dacl, mut descriptor): (*mut ACL, PSECURITY_DESCRIPTOR) = (null_mut(), null_mut());
     let err = GetNamedSecurityInfoW(
@@ -150,8 +154,8 @@ unsafe fn grant_read(folder: &Path, sid: PSID) -> Result<(), String> {
         return Err(format!("permissão da pasta ({err})"));
     }
     let mut access: EXPLICIT_ACCESS_W = zeroed();
-    access.grfAccessPermissions = FILE_READ_EXECUTE;
-    access.grfAccessMode = GRANT_ACCESS;
+    access.grfAccessPermissions = mask;
+    access.grfAccessMode = mode;
     access.grfInheritance = SUB_CONTAINERS_AND_OBJECTS_INHERIT;
     access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
     access.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
@@ -175,6 +179,23 @@ unsafe fn grant_read(folder: &Path, sid: PSID) -> Result<(), String> {
         return Err(format!("permissão da pasta ({err})"));
     }
     Ok(())
+}
+
+/// Dá ao plugin `id` acesso a uma pasta que você aprovou (leitura, ou leitura e escrita).
+/// Numa pasta grande pode demorar: o Windows aplica a permissão a cada arquivo.
+pub fn allow_folder(id: &str, folder: &Path, write: bool) -> Result<(), String> {
+    unsafe {
+        let sid = container(id)?;
+        set_access(folder, sid.0, if write { FILE_MODIFY } else { FILE_READ_EXECUTE }, SET_ACCESS)
+    }
+}
+
+/// Tira do plugin `id` o acesso a uma pasta (plugin desligado ou pasta não mais aprovada).
+pub fn revoke_folder(id: &str, folder: &Path) -> Result<(), String> {
+    unsafe {
+        let sid = container(id)?;
+        set_access(folder, sid.0, 0, REVOKE_ACCESS)
+    }
 }
 
 /// Variáveis de ambiente mínimas: as do Windows, e as pastas de usuário apontando para
@@ -260,7 +281,7 @@ unsafe fn pipe(child_reads: bool) -> Result<(HANDLE, HANDLE), String> {
 pub fn spawn(spec: &Spec) -> Result<Sandboxed, String> {
     unsafe {
         let sid = container(&spec.id)?;
-        grant_read(&spec.folder, sid.0)?;
+        set_access(&spec.folder, sid.0, FILE_READ_EXECUTE, GRANT_ACCESS)?;
         let data = container_folder(sid.0)?;
 
         let internet = if spec.internet {
@@ -409,6 +430,30 @@ mod tests {
         std::fs::create_dir_all(&folder).unwrap();
         let script = "$c = New-Object Net.Sockets.TcpClient; if ($c.ConnectAsync('1.1.1.1', 443).Wait(5000) -and $c.Connected) { 'rede' } else { 'sem-rede' }";
         assert_eq!(child::run(powershell(&folder, script, true), "", 4096), Ok("rede".into()));
+    }
+
+    #[test]
+    fn approved_folders_open_and_close() {
+        let plugin = std::env::temp_dir().join("stayalone-sandbox-test");
+        let notes = std::env::temp_dir().join("stayalone-sandbox-notas");
+        std::fs::create_dir_all(&plugin).unwrap();
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::write(notes.join("nota.txt"), "comprar pao").unwrap();
+        let script = format!(
+            "try {{ Get-Content -ErrorAction Stop '{0}\\nota.txt' }} catch {{ 'sem-leitura' }}; \
+             try {{ Set-Content -ErrorAction Stop '{0}\\nova.txt' 'x'; 'gravou' }} catch {{ 'sem-escrita' }}",
+            notes.display()
+        );
+        let run = || child::run(powershell(&plugin, &script, false), "", 4096).map(|s| s.lines().collect::<Vec<_>>().join("|"));
+        let _ = std::fs::remove_file(notes.join("nova.txt"));
+        assert_eq!(run(), Ok("sem-leitura|sem-escrita".into()));
+        allow_folder("teste-sandbox", &notes, false).unwrap();
+        assert_eq!(run(), Ok("comprar pao|sem-escrita".into()));
+        allow_folder("teste-sandbox", &notes, true).unwrap();
+        assert_eq!(run(), Ok("comprar pao|gravou".into()));
+        revoke_folder("teste-sandbox", &notes).unwrap();
+        assert_eq!(run(), Ok("sem-leitura|sem-escrita".into()));
+        let _ = std::fs::remove_dir_all(&notes);
     }
 
     #[test]

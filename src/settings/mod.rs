@@ -39,6 +39,7 @@ use crate::{
     pack::{self, PackInfo},
     child::Reply,
     lang::{fill, tr},
+    folders::Access,
     plugins::{self, Enabled, Kind as PluginKind, Plugin, Status},
     secret::{self, KeySource},
     gfx::Canvas,
@@ -843,12 +844,21 @@ unsafe fn fill_security(hwnd: HWND) {
     let external: Vec<&Plugin> = st.plugins.iter().filter(|p| !p.is_native()).collect();
     let on = external.iter().filter(|p| enabled(&p.id)).count();
     let online = external.iter().filter(|p| enabled(&p.id) && p.internet).count();
+    let with_folders = st.draft.plugins.iter().filter(|e| !e.folders.is_empty()).count();
     let plugins = if on == 0 {
         fill(tr("{} instalado(s), nenhum ligado"), &[&external.len()])
-    } else if online == 0 {
-        fill(tr("{} ligado(s), isolados (sandbox), sem internet"), &[&on])
     } else {
-        fill(tr("{} ligado(s), isolados (sandbox); {} com internet"), &[&on, &online])
+        let mut parts = vec![fill(tr("{} ligado(s), isolados (sandbox)"), &[&on])];
+        if online > 0 {
+            parts.push(fill(tr("{} com internet"), &[&online]));
+        }
+        if with_folders > 0 {
+            parts.push(fill(tr("{} com pastas suas"), &[&with_folders]));
+        }
+        if online == 0 && with_folders == 0 {
+            parts.push(tr("sem internet").into());
+        }
+        parts.join("; ")
     };
 
     let values = [program, sha, protections(), updates.into(), key.into(), net.join(" · "), autostart.into(), plugins];
@@ -1231,11 +1241,15 @@ O arquivo do plugin não está mais na pasta."),
             _ => "",
         };
         let access = if p.is_native() {
-            tr("Parte do próprio !StayAlone.")
+            tr("Parte do próprio !StayAlone.").to_string()
+        } else if !p.folders.is_empty() {
+            let asked: Vec<String> = p.folders.iter().map(|(raw, write)| format!("{raw}{}", if *write { tr(" (grava)") } else { "" })).collect();
+            let net = if p.internet { tr("Pede internet.") } else { tr("Sem internet.") };
+            fill(tr("Isolado (sandbox), com acesso a: {}. {}"), &[&asked.join(", "), &net])
         } else if p.internet {
-            tr("Isolado (sandbox): não alcança seus arquivos. Pede internet.")
+            tr("Isolado (sandbox): não alcança seus arquivos. Pede internet.").to_string()
         } else {
-            tr("Isolado (sandbox): não alcança seus arquivos nem a internet.")
+            tr("Isolado (sandbox): não alcança seus arquivos nem a internet.").to_string()
         };
         format!("{}\n{} {file}{when}\n{access}{warning}", p.about, tr("Arquivo:"))
     });
@@ -1282,16 +1296,27 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
         return None;
     }
     if plugin.is_native() {
-        return Some(Enabled { id: plugin.id.clone(), fingerprint: String::new(), internet: false });
+        return Some(Enabled { id: plugin.id.clone(), ..Default::default() });
     }
     // A impressão digital sai antes da pergunta: a que você vê é a que fica aprovada.
     let Some(fingerprint) = plugin.fingerprint() else {
         info(hwnd, tr("Não consegui ler o arquivo do plugin."));
         return None;
     };
+    let folders = match plugin.requested_folders() {
+        Ok(folders) => folders,
+        Err(e) => {
+            info(hwnd, &fill(tr("O plugin \"{}\" pede uma pasta que o !StayAlone não libera: {}"), &[&plugin.name, &e]));
+            return None;
+        }
+    };
     let file = plugin.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
     let limits = [
-        tr("não lê nem muda seus arquivos: só lê a própria pasta e grava numa pasta de dados só dele"),
+        if folders.is_empty() {
+            tr("não lê nem muda seus arquivos: só lê a própria pasta e grava numa pasta de dados só dele")
+        } else {
+            tr("fora das pastas acima, não lê nem muda seus arquivos")
+        },
         tr("não pode abrir outros programas, usar a área de transferência nem mexer nas suas janelas"),
         tr("roda sem janela, por até 2 minutos; só o texto que ele escreve chega ao mascote"),
         tr("se o arquivo mudar, ele para até você aprovar de novo"),
@@ -1309,10 +1334,13 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
     // O hash em blocos de 8, fácil de comparar de olho.
     let blocks: Vec<&str> = (0..fingerprint.len()).step_by(8).map(|i| &fingerprint[i..(i + 8).min(fingerprint.len())]).collect();
     let note = format!("{}\nSHA-256: {}", tr("Ligue só plugins de quem você confia."), blocks.join(" "));
+    let labels: Vec<String> = folders.iter().map(Access::label).collect();
+    let mut chips: Vec<(&str, bool)> = labels.iter().map(|l| (l.as_str(), true)).collect();
+    chips.push(network);
     let question = ask::Question {
         title: &fill(tr("Ligar o plugin \"{}\"?"), &[&plugin.name]),
         body: &body,
-        chip: Some(network),
+        chips: &chips,
         list_title: tr("O que o !StayAlone garante (sandbox do Windows, AppContainer):"),
         items: &limits,
         note: &note,
@@ -1322,7 +1350,7 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
     if !ask::ask(hwnd, &question) {
         return None;
     }
-    Some(Enabled { id: plugin.id.clone(), fingerprint, internet: plugin.internet })
+    Some(Enabled { id: plugin.id.clone(), fingerprint, internet: plugin.internet, folders })
 }
 
 unsafe fn on_plugin_command(hwnd: HWND, id: i32) {

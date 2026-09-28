@@ -261,6 +261,56 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
 
 # Ligar um plugin de terceiros: a pergunta diz que ele roda isolado e mostra o SHA-256 do
 # arquivo; responder "Não" deixa o plugin desligado. Lê o texto da pergunta (sem foto).
+# Texto da pergunta do app: título, texto, lista, nota e destaques ficam em controles com id.
+function Ask-Text($dlg) {
+    (@(10, 11, 13, 14) + (30..35) | ForEach-Object { [Smoke]::Text([Smoke]::GetDlgItem($dlg, $_)) }) -join "`n"
+}
+
+# Abre Plugins nas Configurações e marca a caixinha da linha `row`; devolve (configurações, pergunta).
+function Open-Approval($row) {
+    Run-Exe "--configurar"
+    $s = WaitFor "StayAloneSettings"
+    if ($s -eq [IntPtr]::Zero) { return @([IntPtr]::Zero, [IntPtr]::Zero) }
+    Start-Sleep -Milliseconds 800
+    $y = 191 + 44 * 4 # página Plugins
+    [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
+    [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
+    Start-Sleep -Milliseconds 700
+    $list = [Smoke]::GetDlgItem($s, 160)
+    $ly = 36 + 24 * $row
+    [Smoke]::PostMessageW($list, 0x0201, [IntPtr]1, (Lparam 10 $ly)) | Out-Null
+    [Smoke]::PostMessageW($list, 0x0202, [IntPtr]0, (Lparam 10 $ly)) | Out-Null
+    $dlg = [IntPtr]::Zero
+    $until = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $until -and $dlg -eq [IntPtr]::Zero) {
+        Start-Sleep -Milliseconds 200
+        $dlg = [Smoke]::FindTitled("StayAloneAsk", "!StayAlone")
+    }
+    @($s, $dlg)
+}
+
+# Um plugin que pede pastas e internet: a pergunta mostra cada pasta e o alerta de internet.
+function Check-FolderApproval {
+    $folder = "$script:data\StayAlone\plugins\zz-agenda"
+    New-Item -ItemType Directory -Force $folder | Out-Null
+    Set-Content "$folder\plugin.ini" "name = Agenda`nkind = avisos`nrun = agenda.ps1`nler = Documentos`ngravar = Downloads`ninternet = sim" -Encoding UTF8
+    Set-Content "$folder\agenda.ps1" "'oi'" -Encoding UTF8
+    $s, $dlg = Open-Approval 2
+    Check ($dlg -ne [IntPtr]::Zero) "plugin com pastas pede confirmação"
+    if ($dlg -ne [IntPtr]::Zero) {
+        $text = Ask-Text $dlg
+        Check ($text -match "Só lê: .+" -and $text -match "Lê e grava: .+Downloads") "a pergunta mostra as pastas e o que ele faz em cada uma"
+        Check ($text -match "internet") "a pergunta avisa da internet"
+        Check ($text -match 'plugin "Agenda"') "o plugin.ini com BOM é lido inteiro (nome certo)"
+        Save ([Smoke]::Print($dlg)) "plugin-approval-folders"
+        [Smoke]::PostMessageW($dlg, 0x0111, [IntPtr]7, [IntPtr]::Zero) | Out-Null # Não
+        Start-Sleep -Milliseconds 500
+    }
+    if ($s -ne [IntPtr]::Zero) { [Smoke]::PostMessageW($s, 0x0111, [IntPtr]2, [IntPtr]::Zero) | Out-Null } # Cancelar
+    Start-Sleep -Milliseconds 800
+    Remove-Item -Recurse -Force $folder
+}
+
 function Check-PluginApproval {
     Run-Exe "--configurar"
     $s = WaitFor "StayAloneSettings"
@@ -283,7 +333,7 @@ function Check-PluginApproval {
     Check ($dlg -ne [IntPtr]::Zero) "ligar um plugin pede confirmação"
     if ($dlg -ne [IntPtr]::Zero) {
         # A pergunta do app: título, texto, destaque e nota ficam em controles com id.
-        $text = (10, 11, 12, 13, 14 | ForEach-Object { [Smoke]::Text([Smoke]::GetDlgItem($dlg, $_)) }) -join "`n"
+        $text = Ask-Text $dlg
         $text = $text -replace '(?<=[0-9a-f]{8}) (?=[0-9a-f]{8})', ''
         $hash = (Get-FileHash "$script:data\StayAlone\plugins\curiosidades\curiosidades.ps1").Hash.ToLower()
         Check ($text -match "roda isolado" -and $text -match "Sem internet") "a pergunta diz que o plugin roda isolado e sem internet"
@@ -331,6 +381,7 @@ try {
     Start-App "pt" "mascot=calcifer`nlanguage=pt`ntheme=light`nupdates=off`n"
     Shoot-Settings "pt-" $pages
     Check-PluginApproval
+    Check-FolderApproval
     Stop-App
     Check ((Get-Content "$script:data\StayAlone\config.ini" -Raw) -notmatch "language=en") "português continua português"
     Start-App "en" "mascot=calcifer`nlanguage=en`ntheme=light`nupdates=off`n"

@@ -119,7 +119,10 @@ impressão digital (SHA-256) do programa. Se o arquivo mudar, o plugin é pausad
 ligar de novo. Cada plugin roda num **sandbox do Windows (AppContainer)**: só lê a própria
 pasta, grava só numa pasta de dados dele, não alcança seus arquivos, recebe variáveis de
 ambiente mínimas e fica **sem internet**, a não ser que o `plugin.ini` peça
-(`internet = sim`) e você aprove. A pergunta mostra isso e o SHA-256. O programa precisa estar dentro
+(`internet = sim`) e você aprove. Ele também pode pedir pastas suas específicas
+(`ler = Documentos\Notas`, `gravar = Downloads`): você vê cada uma ao aprovar, pastas amplas
+ou sensíveis (o perfil inteiro, AppData, `.ssh`, Windows...) são recusadas e desligar o
+plugin tira o acesso. A pergunta mostra isso e o SHA-256. O programa precisa estar dentro
 da pasta do plugin, cada execução tem no máximo 2 minutos, 16 KB de resposta e 512 MB de
 memória, e o aviso falado tem até 200 caracteres. Cada execução roda num *Job Object* do
 Windows: sem abrir outros programas, sem área de transferência, sem mexer nas suas janelas

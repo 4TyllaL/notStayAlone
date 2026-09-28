@@ -120,7 +120,10 @@ each is handled are in [`SECURITY.md`](SECURITY.md) (in Portuguese). Highlights:
   SHA-256 and whether it wants internet access) and pins that SHA-256. Every plugin runs in
   its own **AppContainer sandbox**: it only reads its own folder, writes only to a data
   folder of its own, can't reach your files, gets a minimal environment and has no network
-  unless its `plugin.ini` asks for `internet = sim` and you approve. Every plugin and helper
+  unless its `plugin.ini` asks for `internet = sim` and you approve. A plugin can also ask
+  for specific folders of yours (`ler = Documentos\Notas`, `gravar = Downloads`); you see
+  each one when approving, broad or sensitive folders (your whole profile, AppData, `.ssh`,
+  Windows...) are refused, and turning the plugin off takes the access back. Every plugin and helper
   process also runs in a Windows Job Object: it can't start other programs, use the
   clipboard, touch other windows or system settings, is capped at 512 MB and dies with the app.
 - Updates only come from this repository's releases, are checked against the SHA-256

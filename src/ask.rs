@@ -38,7 +38,8 @@ const PAD: i32 = 20;
 const TEXT_X: i32 = 92;
 const ID_TITLE: i32 = 10;
 const ID_BODY: i32 = 11;
-const ID_CHIP: i32 = 12;
+/// Destaques: 30, 31, ...
+const ID_CHIP: i32 = 30;
 const ID_LIST_TITLE: i32 = 13;
 const ID_ITEM: i32 = 20; // 20, 21, ...
 const ID_NOTE: i32 = 14;
@@ -53,8 +54,8 @@ const SS_NOPREFIX: u32 = 0x80;
 pub struct Question<'a> {
     pub title: &'a str,
     pub body: &'a str,
-    /// Destaque logo abaixo do texto; `true` = alerta (laranja).
-    pub chip: Option<(&'a str, bool)>,
+    /// Destaques logo abaixo do texto; `true` = alerta (laranja).
+    pub chips: &'a [(&'a str, bool)],
     pub list_title: &'a str,
     pub items: &'a [&'a str],
     /// Nota em cinza no fim (ex.: o SHA-256).
@@ -72,10 +73,11 @@ struct State {
     icons: HFONT,
     big_icon: HFONT,
     card_brush: HBRUSH,
-    chip_brush: HBRUSH,
+    soft_brush: HBRUSH,
+    alert_brush: HBRUSH,
     /// Cartão, ícone, destaque e as marcas ✓ (em pixels).
     card: RECT,
-    chip: Option<(RECT, bool)>,
+    chips: Vec<(RECT, bool)>,
     checks: Vec<(i32, i32)>,
 }
 
@@ -110,12 +112,10 @@ pub unsafe fn ask(owner: HWND, q: &Question) -> bool {
         icons: theme::icon_font(s(14)),
         big_icon: theme::icon_font(s(24)),
         card_brush: CreateSolidBrush(theme::colorref(theme::card())),
-        chip_brush: CreateSolidBrush(theme::colorref(match q.chip {
-            Some((_, true)) => theme::accent_soft(),
-            _ => theme::soft(),
-        })),
+        soft_brush: CreateSolidBrush(theme::colorref(theme::soft())),
+        alert_brush: CreateSolidBrush(theme::colorref(theme::accent_soft())),
         card: zeroed(),
-        chip: None,
+        chips: Vec::new(),
         checks: Vec::new(),
     });
 
@@ -142,13 +142,17 @@ pub unsafe fn ask(owner: HWND, q: &Question) -> bool {
         labels.push((ID_BODY, RECT { left: x, top: y, right: x + text_w, bottom: y + h }, st.font, q.body));
         y += h + s(12);
     }
-    if let Some((text, alert)) = q.chip {
+    for (i, &(text, alert)) in q.chips.iter().enumerate() {
         let inner = text_w - s(40);
         let h = measure(st.font, text, inner);
         let chip = RECT { left: x, top: y, right: x + text_w, bottom: y + h + s(16) };
-        labels.push((ID_CHIP, RECT { left: x + s(32), top: y + s(8), right: x + s(32) + inner, bottom: y + s(8) + h }, st.font, text));
-        st.chip = Some((chip, alert));
-        y = chip.bottom + s(16);
+        let id = ID_CHIP + i as i32;
+        labels.push((id, RECT { left: x + s(32), top: y + s(8), right: x + s(32) + inner, bottom: y + s(8) + h }, st.font, text));
+        st.chips.push((chip, alert));
+        y = chip.bottom + s(6);
+    }
+    if !q.chips.is_empty() {
+        y += s(10);
     }
     if !q.items.is_empty() {
         let h = measure(st.bold, q.list_title, text_w);
@@ -288,14 +292,14 @@ unsafe fn paint(hwnd: HWND, st: &State) {
     c.fill(0, 0, client.right, client.bottom, argb(theme::bg()));
     let r = st.card;
     c.card((r.left, r.top, r.right - r.left, r.bottom - r.top), s(10), argb(theme::card()), argb(theme::border()));
-    // Ícone: escudo num círculo (alerta, se o destaque for um alerta).
-    let alert = matches!(st.chip, Some((_, true)));
+    // Ícone: escudo num círculo (alerta, se algum destaque for um alerta).
+    let alert = st.chips.iter().any(|&(_, alert)| alert);
     let (ix, iy, size) = (r.left + s(20), r.top + s(20), s(44));
     c.round_rect(ix, iy, size, size, size / 2, argb(theme::accent_soft()));
     let glyph = if alert { WARNING } else { SHIELD };
     let icon_rect = RECT { left: ix, top: iy, right: ix + size, bottom: iy + size };
     c.text(st.big_icon, &glyph.to_string(), icon_rect, theme::accent(), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    if let Some((chip, alert)) = st.chip {
+    for &(chip, alert) in &st.chips {
         let fill = if alert { theme::accent_soft() } else { theme::soft() };
         c.round_rect(chip.left, chip.top, chip.right - chip.left, chip.bottom - chip.top, s(8), argb(fill));
         let mark = RECT { left: chip.left + s(8), top: chip.top + s(8), right: chip.left + s(28), bottom: chip.top + s(28) };
@@ -325,14 +329,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let dc = wp as HDC;
             SetBkMode(dc, TRANSPARENT as _);
             let id = GetDlgCtrlID(lp as HWND);
-            let alert = matches!(st.chip, Some((_, true)));
-            let ink = match id {
-                ID_NOTE => theme::muted(),
-                ID_CHIP if alert => theme::accent_dark(),
-                _ => theme::text(),
+            let chip = usize::try_from(id - ID_CHIP).ok().and_then(|i| st.chips.get(i));
+            let (ink, brush) = match chip {
+                Some((_, true)) => (theme::accent_dark(), st.alert_brush),
+                Some((_, false)) => (theme::text(), st.soft_brush),
+                None if id == ID_NOTE => (theme::muted(), st.card_brush),
+                None => (theme::text(), st.card_brush),
             };
             SetTextColor(dc, theme::colorref(ink));
-            (if id == ID_CHIP { st.chip_brush } else { st.card_brush }) as LRESULT
+            brush as LRESULT
         }
         WM_DRAWITEM => {
             let Some(st) = state(hwnd) else { return 0 };
@@ -368,7 +373,8 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     DeleteObject(font);
                 }
                 DeleteObject(st.card_brush);
-                DeleteObject(st.chip_brush);
+                DeleteObject(st.soft_brush);
+                DeleteObject(st.alert_brush);
             }
             DefWindowProcW(hwnd, msg, wp, lp)
         }

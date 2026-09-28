@@ -7,15 +7,18 @@
 //!   run   = curiosidades.ps1   (um .exe ou .ps1 dentro da própria pasta)
 //!   every = 90                 (avisos: minutos entre uma vez e outra)
 //!   internet = sim             (opcional: pede acesso à internet)
+//!   ler    = Documentos\Notas   (opcional, repetível: pasta que ele só lê)
+//!   gravar = Downloads          (opcional, repetível: pasta que ele lê e grava)
 //!
 //! - **conversa**: responde quando você conversa com o mascote (o nativo usa a IA).
 //! - **avisos**: roda de tempos em tempos; o que escrever no stdout, o mascote fala.
 //!
 //! Segurança: plugin novo chega desligado. Ao ligar, você confirma e o app guarda a
-//! impressão digital (SHA-256) do programa e se ele pode usar a internet; se o arquivo
-//! mudar (ou ele passar a pedir internet), ele não roda até você confirmar de novo.
-//! Cada execução roda num AppContainer (`sandbox`): só lê a própria pasta, tem uma
-//! pasta de dados só dele e não alcança seus arquivos nem a rede sem permissão.
+//! impressão digital (SHA-256) do programa, se ele pode usar a internet e as pastas que
+//! você liberou; se o arquivo mudar (ou ele passar a pedir mais), ele não roda até você
+//! confirmar de novo. Cada execução roda num AppContainer (`sandbox`): só lê a própria
+//! pasta, tem uma pasta de dados só dele e não alcança seus arquivos (fora as pastas
+//! liberadas, ver `folders`) nem a rede sem permissão.
 
 use std::{
     ffi::OsString,
@@ -30,6 +33,7 @@ use crate::{
     ai::{self, json::quote},
     child::{self, Program, Reply},
     config::read_file,
+    folders::{self, Access, MAX_FOLDERS},
     lang::{self, tr},
     sandbox, sha256,
     win::clean_line,
@@ -90,15 +94,18 @@ pub struct Plugin {
     pub every: u32,
     /// O `plugin.ini` pede acesso à internet.
     pub internet: bool,
+    /// Pastas pedidas, como estão no `plugin.ini` (texto, gravar?).
+    pub folders: Vec<(String, bool)>,
 }
 
-/// Plugin ligado: o id, a impressão digital aprovada (vazia no nativo) e se você
-/// liberou a internet para ele.
-#[derive(Clone, PartialEq, Debug)]
+/// Plugin ligado: o id, a impressão digital aprovada (vazia no nativo), se você
+/// liberou a internet para ele e as pastas liberadas.
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct Enabled {
     pub id: String,
     pub fingerprint: String,
     pub internet: bool,
+    pub folders: Vec<Access>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -122,6 +129,7 @@ impl Plugin {
             program: exe,
             every: 0,
             internet: true,
+            folders: Vec::new(),
         }
     }
 
@@ -142,9 +150,17 @@ impl Plugin {
         enabled.iter().find(|e| e.id == self.id && !self.is_native()).cloned()
     }
 
+    /// As pastas pedidas, já como caminhos reais (erro se alguma não puder ser liberada).
+    pub fn requested_folders(&self) -> Result<Vec<Access>, String> {
+        self.folders.iter().map(|(raw, write)| folders::resolve(raw).map(|path| Access { path, write: *write })).collect()
+    }
+
     /// O arquivo é o aprovado e não pede mais do que foi aprovado.
     fn matches(&self, approval: &Enabled) -> bool {
-        (!self.internet || approval.internet) && self.fingerprint().as_deref() == Some(approval.fingerprint.as_str())
+        let folders_ok = self.requested_folders().is_ok_and(|asked| {
+            asked.iter().all(|a| approval.folders.iter().any(|ok| ok.path.eq_ignore_ascii_case(&a.path) && (ok.write || !a.write)))
+        });
+        (!self.internet || approval.internet) && folders_ok && self.fingerprint().as_deref() == Some(approval.fingerprint.as_str())
     }
 
     pub fn status(&self, enabled: &[Enabled]) -> Status {
@@ -219,6 +235,9 @@ fn parse(id: &str, folder: &Path, text: &str) -> Result<Plugin, String> {
     }
     let (mut name, mut about, mut kind, mut run, mut every) = (String::new(), String::new(), None, String::new(), 60);
     let mut internet = false;
+    let mut asked: Vec<(String, bool)> = Vec::new();
+    // Sem o BOM do UTF-8 (PowerShell 5 e o Bloco de Notas antigo gravam), a 1ª chave se perderia.
+    let text = text.trim_start_matches('\u{feff}');
     for line in text.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
         let Some((key, value)) = line.split_once('=') else { continue };
         let value = value.trim();
@@ -235,6 +254,13 @@ fn parse(id: &str, folder: &Path, text: &str) -> Result<Plugin, String> {
             "run" => run = value.to_string(),
             "every" => every = value.parse::<u32>().unwrap_or(every).clamp(MIN_EVERY, MAX_EVERY),
             "internet" => internet = matches!(value.to_lowercase().as_str(), "sim" | "yes" | "true" | "1"),
+            "ler" | "read" | "gravar" | "write" if !value.is_empty() => {
+                let write = matches!(key.trim(), "gravar" | "write");
+                match asked.iter_mut().find(|(raw, _)| raw.eq_ignore_ascii_case(value)) {
+                    Some(existing) => existing.1 |= write,
+                    None => asked.push((value.to_string(), write)),
+                }
+            }
             _ => {}
         }
     }
@@ -245,8 +271,11 @@ fn parse(id: &str, folder: &Path, text: &str) -> Result<Plugin, String> {
     if !file_ok {
         return Err("run precisa ser um .exe ou .ps1 dentro da pasta do plugin".into());
     }
+    if asked.len() > MAX_FOLDERS {
+        return Err(format!("no máximo {MAX_FOLDERS} pastas (ler/gravar)"));
+    }
     let name = if name.is_empty() { id.into() } else { name };
-    Ok(Plugin { id: id.into(), name, about, kind, program: folder.join(run), every, internet })
+    Ok(Plugin { id: id.into(), name, about, kind, program: folder.join(run), every, internet, folders: asked })
 }
 
 /// Cria a pasta de plugins (com o LEIA-ME e o exemplo, desligado) e devolve o caminho.
@@ -270,6 +299,29 @@ pub fn prepare_dir() -> Option<PathBuf> {
 /// Texto com fim de linha do Windows (seja qual for o do repositório).
 fn crlf(text: &str) -> String {
     text.replace("\r\n", "\n").replace('\n', "\r\n")
+}
+
+/// Dá e tira o acesso às pastas conforme o que mudou nos plugins ligados (numa thread:
+/// numa pasta grande o Windows demora para aplicar a permissão a cada arquivo).
+pub fn sync_folders(old: &[Enabled], new: &[Enabled]) -> Option<std::thread::JoinHandle<()>> {
+    let pairs = |list: &[Enabled]| -> Vec<(String, Access)> {
+        list.iter().flat_map(|e| e.folders.iter().map(|a| (e.id.clone(), a.clone()))).collect()
+    };
+    let (old, new) = (pairs(old), pairs(new));
+    let same_folder = |(id, a): &(String, Access), (id2, b): &(String, Access)| id == id2 && a.path.eq_ignore_ascii_case(&b.path);
+    let revoke: Vec<_> = old.iter().filter(|o| !new.iter().any(|n| same_folder(o, n))).cloned().collect();
+    let grant: Vec<_> = new.iter().filter(|n| !old.contains(n)).cloned().collect();
+    if revoke.is_empty() && grant.is_empty() {
+        return None;
+    }
+    Some(std::thread::spawn(move || {
+        for (id, a) in revoke {
+            let _ = sandbox::revoke_folder(&id, Path::new(&a.path));
+        }
+        for (id, a) in grant {
+            let _ = sandbox::allow_folder(&id, Path::new(&a.path), a.write);
+        }
+    }))
 }
 
 /// O que um plugin de avisos recebe no stdin.
@@ -310,6 +362,11 @@ mod tests {
         let p = parse("clima", &folder(), "name = Clima\nkind = avisos\nrun = clima.exe\nevery = 1\n").unwrap();
         assert_eq!((p.name.as_str(), p.kind, p.every, p.internet), ("Clima", Kind::Notice, MIN_EVERY, false));
         assert!(parse("clima", &folder(), "kind = avisos\nrun = clima.exe\ninternet = sim\n").unwrap().internet);
+        assert_eq!(parse("clima", &folder(), "\u{feff}name = Clima\nkind = avisos\nrun = clima.exe").unwrap().name, "Clima");
+        let notes = parse("notas", &folder(), "kind = avisos\nrun = n.exe\nler = Documentos\\Notas\ngravar = Downloads\nler = downloads\n").unwrap();
+        assert_eq!(notes.folders, vec![("Documentos\\Notas".to_string(), false), ("Downloads".to_string(), true)]);
+        let many: String = (0..=MAX_FOLDERS).map(|i| format!("ler = D:\\p{i}\n")).collect();
+        assert!(parse("notas", &folder(), &format!("kind = avisos\nrun = n.exe\n{many}")).is_err());
         assert_eq!(p.program, folder().join("clima.exe"));
     }
 
@@ -353,7 +410,7 @@ mod tests {
         let program = dir.join("p.exe");
         fs::write(&program, "versão 1").unwrap();
         let plugin = Plugin { program: program.clone(), ..parse("teste", &dir, "kind = avisos\nrun = p.exe").unwrap() };
-        let enabled = vec![Enabled { id: "teste".into(), fingerprint: plugin.fingerprint().unwrap(), internet: false }];
+        let enabled = vec![Enabled { id: "teste".into(), fingerprint: plugin.fingerprint().unwrap(), ..Default::default() }];
         assert_eq!(plugin.status(&enabled), Status::On);
         assert_eq!(plugin.status(&[]), Status::Off);
         // Passar a pedir internet depois de aprovado também exige aprovar de novo.
@@ -361,9 +418,39 @@ mod tests {
         assert_eq!(online.status(&enabled), Status::Changed);
         let enabled_online = vec![Enabled { internet: true, ..enabled[0].clone() }];
         assert_eq!(online.status(&enabled_online), Status::On);
+        // Pastas: pedir uma pasta nova, ou gravar onde só podia ler, também.
+        let documents = folders::resolve("Documentos").unwrap();
+        let reader = Plugin { folders: vec![("Documentos".into(), false)], ..plugin.clone() };
+        let writer = Plugin { folders: vec![("Documentos".into(), true)], ..plugin.clone() };
+        assert_eq!(reader.status(&enabled), Status::Changed);
+        let read_ok = vec![Enabled { folders: vec![Access { path: documents.clone(), write: false }], ..enabled[0].clone() }];
+        assert_eq!(reader.status(&read_ok), Status::On);
+        assert_eq!(writer.status(&read_ok), Status::Changed);
+        let write_ok = vec![Enabled { folders: vec![Access { path: documents, write: true }], ..enabled[0].clone() }];
+        assert_eq!(writer.status(&write_ok), Status::On);
+        assert_eq!(reader.status(&write_ok), Status::On);
         fs::write(&program, "versão 2").unwrap();
         assert_eq!(plugin.status(&enabled), Status::Changed);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Ligar dá acesso à pasta aprovada; desligar tira (como o app faz ao salvar).
+    #[test]
+    fn turning_off_closes_the_folders() {
+        let folder = std::env::temp_dir().join("stayalone-plugin-pastas");
+        fs::create_dir_all(&folder).unwrap();
+        let path = fs::canonicalize(&folder).unwrap().to_string_lossy().trim_start_matches(r"\\?\").to_string();
+        let on = vec![Enabled { id: "teste-pastas".into(), folders: vec![Access { path: path.clone(), write: true }], ..Default::default() }];
+        let has_ace = || {
+            let out = std::process::Command::new("icacls").arg(&path).output().unwrap();
+            String::from_utf8_lossy(&out.stdout).contains("S-1-15-2-")
+        };
+        sync_folders(&[], &on).unwrap().join().unwrap();
+        assert!(has_ace(), "ligar não liberou a pasta");
+        assert!(sync_folders(&on, &on).is_none(), "nada mudou, nada a fazer");
+        sync_folders(&on, &[]).unwrap().join().unwrap();
+        assert!(!has_ace(), "desligar não tirou o acesso");
+        let _ = fs::remove_dir_all(&folder);
     }
 
     #[test]

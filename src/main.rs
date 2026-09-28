@@ -11,6 +11,7 @@ mod child;
 mod companion;
 mod config;
 mod flyout;
+mod folders;
 mod gallery;
 mod gfx;
 mod guide;
@@ -1139,6 +1140,7 @@ impl App {
             config::set_autostart(draft.autostart);
         }
         if new.plugins != self.config.plugins {
+            plugins::sync_folders(&self.config.plugins, &new.plugins); // roda sozinho numa thread
             self.config.plugins = new.plugins.clone();
             self.load_plugins();
         }
