@@ -33,6 +33,7 @@ use crate::{
     config::{self, ChatSettings, Config, Size, MAX_REMINDERS, MAX_REMINDER_TEXT, PROVIDERS},
     mailbox,
     maker::Drawing,
+    memory,
     pack::{self, PackInfo},
     child::Reply,
     plugins::{self, Enabled, Kind as PluginKind, Plugin, Status},
@@ -93,6 +94,10 @@ const IDC_MODS: i32 = 106;
 const IDC_BIRTHDAY: i32 = 107;
 const IDC_UPDATES: i32 = 108;
 const IDC_MEETINGS: i32 = 109;
+const IDC_MEMORY: i32 = 130;
+const IDC_MEMORY_STATUS: i32 = 131;
+const IDC_MEMORY_OPEN: i32 = 132;
+const IDC_MEMORY_CLEAR: i32 = 133;
 const IDC_MASCOT: i32 = 101;
 const IDC_SIZE: i32 = 102;
 const IDC_SPEED: i32 = 103;
@@ -465,22 +470,28 @@ unsafe fn build(hwnd: HWND) {
     label!(2, "Nome da chave", x0, 274, 170);
     let key_name = add(Some(2), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 272, cw, 24), IDC_KEYENV);
     limit(key_name, 64);
-    section!(2, "Chave da API", 338);
-    label!(2, "Colar a chave", x0, 368, 170);
-    let key = add(Some(2), "EDIT", "", edit | ES_PASSWORD as u32, WS_EX_CLIENTEDGE, (cx, 366, 180, 24), IDC_KEY);
+    section!(2, "Chave da API", 330);
+    label!(2, "Colar a chave", x0, 358, 170);
+    let key = add(Some(2), "EDIT", "", edit | ES_PASSWORD as u32, WS_EX_CLIENTEDGE, (cx, 356, 180, 24), IDC_KEY);
     SendMessageW(key, EM_SETCUEBANNER, 1, w("cole aqui para salvar").as_ptr() as LPARAM);
     limit(key, 512);
-    add(Some(2), "BUTTON", "Remover chave", button, 0, (cx + 188, 364, 112, 28), IDC_KEY_REMOVE);
-    add(Some(2), "STATIC", "", 0, 0, (cx, 396, cw, 20), IDC_KEY_STATUS);
-    add(Some(2), "BUTTON", "Onde consigo uma chave?", button, 0, (x0, 424, 210, 30), IDC_GETKEY);
+    add(Some(2), "BUTTON", "Remover chave", button, 0, (cx + 188, 354, 112, 28), IDC_KEY_REMOVE);
+    add(Some(2), "STATIC", "", 0, 0, (cx, 388, 180, 20), IDC_KEY_STATUS);
+    add(Some(2), "BUTTON", "Criar chave", button, 0, (cx + 188, 384, 112, 28), IDC_GETKEY);
     hint!(
         2,
-        "A chave fica no Gerenciador de Credenciais do Windows, protegida pela sua conta — nunca em arquivos do app. Ela só é enviada, por HTTPS, ao serviço escolhido.",
-        464,
-        62
+        "Fica no Gerenciador de Credenciais do Windows, protegida pela sua conta, e só vai por HTTPS ao serviço escolhido.",
+        418,
+        40
     );
-    add(Some(2), "BUTTON", "Testar conversa", button, 0, (x0, 534, 140, 30), IDC_TEST);
-    add(Some(2), "STATIC", "", 0, 0, (x0 + 150, 532, CONTENT - 2 * x0 - 150, 60), IDC_TEST_RESULT);
+    add(Some(2), "BUTTON", "Testar conversa", button, 0, (x0, 464, 140, 30), IDC_TEST);
+    add(Some(2), "STATIC", "", 0, 0, (x0 + 150, 462, CONTENT - 2 * x0 - 150, 40), IDC_TEST_RESULT);
+    section!(2, "Memória", 532);
+    let check = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
+    add(Some(2), "BUTTON", "Lembrar do que eu contar na conversa (fica só neste PC)", check, 0, (x0, 558, 460, 22), IDC_MEMORY);
+    add(Some(2), "STATIC", "", 0, 0, (x0, 590, 200, 20), IDC_MEMORY_STATUS);
+    add(Some(2), "BUTTON", "Ver e editar", button, 0, (x0 + 206, 584, 118, 30), IDC_MEMORY_OPEN);
+    add(Some(2), "BUTTON", "Esquecer tudo", button, 0, (x0 + 332, 584, 124, 30), IDC_MEMORY_CLEAR);
 
     // --- Criar mascote
     card!(3, 118);
@@ -630,6 +641,8 @@ unsafe fn populate(hwnd: HWND) {
     SendMessageW(item(hwnd, IDC_AUTOSTART), BM_SETCHECK, checked as WPARAM, 0);
     set_checked_box(hwnd, IDC_UPDATES, st.draft.updates);
     set_checked_box(hwnd, IDC_MEETINGS, st.draft.quiet_in_meetings);
+    set_checked_box(hwnd, IDC_MEMORY, st.draft.memory);
+    show_memory_status(hwnd);
     if let Some((day, month)) = st.draft.birthday {
         set_text(hwnd, IDC_BIRTHDAY, &format!("{day:02}/{month:02}"));
     }
@@ -1140,6 +1153,33 @@ unsafe fn on_reply(hwnd: HWND, reply: Reply) {
 
 // --- OK -------------------------------------------------------------------------
 
+unsafe fn show_memory_status(hwnd: HWND) {
+    let text = match memory::load().len() {
+        0 => "Ainda não lembra de nada.".to_string(),
+        1 => "Lembra de 1 coisa.".to_string(),
+        n => format!("Lembra de {n} coisas."),
+    };
+    set_text(hwnd, IDC_MEMORY_STATUS, &text);
+}
+
+unsafe fn on_memory_command(hwnd: HWND, id: i32) {
+    match id {
+        IDC_MEMORY_OPEN => {
+            if let Some(path) = memory::create() {
+                ShellExecuteW(hwnd, w("open").as_ptr(), w(&path.to_string_lossy()).as_ptr(), null(), null(), SW_SHOWNORMAL);
+            }
+        }
+        IDC_MEMORY_CLEAR => {
+            let question = w("Esquecer tudo o que o mascote lembra de você?");
+            if MessageBoxW(hwnd, question.as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES {
+                memory::forget_all();
+                show_memory_status(hwnd);
+            }
+        }
+        _ => {}
+    }
+}
+
 unsafe fn is_checked(hwnd: HWND, id: i32) -> bool {
     SendMessageW(item(hwnd, id), BM_GETCHECK, 0, 0) == BST_CHECKED as isize
 }
@@ -1172,6 +1212,7 @@ unsafe fn on_ok(hwnd: HWND) {
     }
     st.draft.updates = is_checked(hwnd, IDC_UPDATES);
     st.draft.quiet_in_meetings = is_checked(hwnd, IDC_MEETINGS);
+    st.draft.memory = is_checked(hwnd, IDC_MEMORY);
     let autostart = is_checked(hwnd, IDC_AUTOSTART);
     mailbox::post(st.owner, WM_SETTINGS_APPLY, Draft { config: st.draft.clone(), autostart });
     DestroyWindow(hwnd);
@@ -1339,6 +1380,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 }
                 IDC_KEYENV if code == EN_CHANGE => show_key_status(hwnd),
                 IDC_KEY_REMOVE | IDC_GETKEY | IDC_TEST => on_chat_command(hwnd, id),
+                IDC_MEMORY_OPEN | IDC_MEMORY_CLEAR => on_memory_command(hwnd, id),
                 IDC_TEMPLATE | IDC_CLEAR | IDC_MIRROR | IDC_SAVE_MASCOT | IDC_AI_GO => on_maker_command(hwnd, id, code),
                 IDC_PLUGIN_TEST | IDC_PLUGIN_FOLDER | IDC_PLUGIN_RELOAD => on_plugin_command(hwnd, id),
                 _ => {}

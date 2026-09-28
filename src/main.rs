@@ -12,6 +12,7 @@ mod gfx;
 mod mailbox;
 mod maker;
 mod mascot;
+mod memory;
 mod net;
 mod pack;
 mod phrases;
@@ -727,7 +728,10 @@ impl App {
         let excess = self.chat_history.len().saturating_sub(chat::HISTORY);
         self.chat_history.drain(..excess);
         let about = self.art.sheet.about.as_deref().unwrap_or("um mascote fofinho");
-        let system = chat::system_prompt(&self.art.name, about, self.art.female());
+        let mut system = chat::system_prompt(&self.art.name, about, self.art.female());
+        if self.config.memory {
+            system += &memory::prompt(&memory::load(), &today());
+        }
         let payload = chat::payload(&system, &self.chat_history, None);
         self.chat_busy = true;
         self.speak(Topic::Chat, Some("...".into())); // pensando
@@ -739,7 +743,12 @@ impl App {
         self.chat_busy = false;
         match reply {
             Ok(text) => {
-                let text = chat::shorten(&text);
+                // A linha "LEMBRAR: ..." vai para a memória, não para o balão.
+                let (shown, facts) = memory::split_reply(&text);
+                if self.config.memory {
+                    memory::remember(&facts, &today());
+                }
+                let text = if shown.is_empty() { "Anotado!".to_string() } else { chat::shorten(&shown) };
                 self.chat_history.push((false, text.clone()));
                 self.speak(Topic::Chat, Some(text));
             }
@@ -1189,6 +1198,13 @@ impl App {
 
 unsafe fn app_of(hwnd: HWND) -> Option<&'static mut App> {
     (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut App).as_mut()
+}
+
+/// Hoje, para a memória e a conversa: "28/09, domingo".
+fn today() -> String {
+    const WEEKDAYS: [&str; 7] = ["domingo", "segunda", "terça", "quarta", "quinta", "sexta", "sábado"];
+    let (day, _, weekday) = unsafe { clock() };
+    format!("{:02}/{:02}, {}", day % 100, day / 100 % 100, WEEKDAYS[weekday as usize % 7])
 }
 
 /// Sprite parado de um mascote (16×16, 0xAARRGGBB), para o painel.
