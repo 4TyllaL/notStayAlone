@@ -11,7 +11,7 @@
 //! Fala com qualquer API no padrão OpenAI (`/chat/completions`); o provedor vem
 //! do chat.ini (Gemini por padrão) e a chave do `secret`.
 
-mod http;
+
 pub mod json;
 
 use std::io::{Read, Write};
@@ -62,7 +62,7 @@ fn answer(request: &Json) -> Result<String, String> {
     }
     let key = secret::read(&config.key_env)?;
     let url = format!("{}/chat/completions", config.api_base);
-    let (status, text) = http::post(&url, key.as_deref(), &body(&config, request))?;
+    let (status, text) = crate::net::post(&url, key.as_deref(), &body(&config, request))?;
     let reply = json::parse(&text).map_err(|_| format!("resposta inesperada do servidor (HTTP {status})"))?;
     // Alguns provedores devolvem o erro dentro de uma lista.
     let reply = match &reply {

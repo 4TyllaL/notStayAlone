@@ -32,7 +32,7 @@ use crate::{
 
 /// Texto digitado na caixinha (`String` no `mailbox`), enviado ao app.
 pub const WM_CHAT_SEND: u32 = WM_APP + 6;
-/// Resposta do plugin de conversa (`plugins::Reply` no `mailbox`).
+/// Resposta do plugin de conversa (`child::Reply` no `mailbox`).
 pub const WM_CHAT_REPLY: u32 = WM_APP + 7;
 
 /// Quantas mensagens anteriores vão junto (a "memória" da conversa).

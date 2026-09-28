@@ -34,11 +34,13 @@ use crate::{
     mailbox,
     maker::Drawing,
     pack::{self, PackInfo},
-    plugins::{self, Enabled, Kind as PluginKind, Plugin, Reply, Status},
+    child::Reply,
+    plugins::{self, Enabled, Kind as PluginKind, Plugin, Status},
     secret::{self, KeySource},
     gfx::Canvas,
     sprite::{Frame, PIXELS, SPRITE},
     theme::{self, argb, icon},
+    ui,
     win::{self, text_of, ui_font, w},
 };
 
@@ -88,6 +90,9 @@ const NAV_TOP: i32 = 176;
 const NAV_STEP: i32 = 44;
 
 const IDC_MODS: i32 = 106;
+const IDC_BIRTHDAY: i32 = 107;
+const IDC_UPDATES: i32 = 108;
+const IDC_MEETINGS: i32 = 109;
 const IDC_MASCOT: i32 = 101;
 const IDC_SIZE: i32 = 102;
 const IDC_SPEED: i32 = 103;
@@ -416,16 +421,16 @@ unsafe fn build(hwnd: HWND) {
     label!(0, "Considerar ausente após", x0, 342, 170);
     add(Some(0), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx, 340, 50, 24), IDC_AWAY);
     label!(0, "min sem usar o PC", cx + 58, 342, 200);
-    add(Some(0), "BUTTON", "Iniciar junto com o Windows", BS_AUTOCHECKBOX as u32 | WS_TABSTOP, 0, (x0, 376, 300, 22), IDC_AUTOSTART);
-    section!(0, "Dicas", 430);
-    hint!(
-        0,
-        "• Clique no mascote para fazer carinho; arraste para carregar e arremessar.\n\
-         • Botão direito nele (ou clique no ícone da bandeja) abre o painel: brincar,\n   conversar, trocar de mascote, silenciar...\n\
-         • Atalhos do Windows podem usar: dontStayAlone.exe --bolinha, --petisco,\n   --conversar e --configurar.",
-        456,
-        104
-    );
+    label!(0, "Seu aniversário", x0, 376, 170);
+    let birthday = add(Some(0), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 374, 70, 24), IDC_BIRTHDAY);
+    SendMessageW(birthday, EM_SETCUEBANNER, 1, w("dd/mm").as_ptr() as LPARAM);
+    limit(birthday, 5);
+    label!(0, "o mascote comemora com você", cx + 78, 376, 230);
+    let check = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
+    add(Some(0), "BUTTON", "Iniciar junto com o Windows", check, 0, (x0, 412, 400, 22), IDC_AUTOSTART);
+    add(Some(0), "BUTTON", "Procurar versões novas (uma vez por dia, no GitHub)", check, 0, (x0, 440, 440, 22), IDC_UPDATES);
+    add(Some(0), "BUTTON", "Ficar quieto em reuniões (Teams, Zoom, Meet...)", check, 0, (x0, 468, 440, 22), IDC_MEETINGS);
+    hint!(0, "Para as reuniões ele olha só o nome do programa aberto, nunca o que está na tela.", 494, 20);
 
     // --- Lembretes
     section!(1, "Seus lembretes", 116);
@@ -623,6 +628,11 @@ unsafe fn populate(hwnd: HWND) {
     set_text(hwnd, IDC_AWAY, &st.draft.companion.away_minutes.to_string());
     let checked = if config::autostart_enabled() { BST_CHECKED } else { BST_UNCHECKED };
     SendMessageW(item(hwnd, IDC_AUTOSTART), BM_SETCHECK, checked as WPARAM, 0);
+    set_checked_box(hwnd, IDC_UPDATES, st.draft.updates);
+    set_checked_box(hwnd, IDC_MEETINGS, st.draft.quiet_in_meetings);
+    if let Some((day, month)) = st.draft.birthday {
+        set_text(hwnd, IDC_BIRTHDAY, &format!("{day:02}/{month:02}"));
+    }
     fill_list(hwnd, None);
 
     let mut providers: Vec<String> = PROVIDERS.iter().map(|p| p.0.to_string()).collect();
@@ -1130,6 +1140,14 @@ unsafe fn on_reply(hwnd: HWND, reply: Reply) {
 
 // --- OK -------------------------------------------------------------------------
 
+unsafe fn is_checked(hwnd: HWND, id: i32) -> bool {
+    SendMessageW(item(hwnd, id), BM_GETCHECK, 0, 0) == BST_CHECKED as isize
+}
+
+unsafe fn set_checked_box(hwnd: HWND, id: i32, on: bool) {
+    SendMessageW(item(hwnd, id), BM_SETCHECK, if on { BST_CHECKED } else { BST_UNCHECKED } as WPARAM, 0);
+}
+
 unsafe fn on_ok(hwnd: HWND) {
     let Some(st) = state(hwnd) else { return };
     let Some(away) = number(hwnd, IDC_AWAY, 1..=120, "Tempo para considerar ausente") else {
@@ -1144,7 +1162,17 @@ unsafe fn on_ok(hwnd: HWND) {
     st.draft.size = Size::ALL[combo_index(hwnd, IDC_SIZE).min(Size::ALL.len() - 1)];
     st.draft.speed = combo_index(hwnd, IDC_SPEED) as u32 + 1;
     st.draft.companion.away_minutes = away;
-    let autostart = SendMessageW(item(hwnd, IDC_AUTOSTART), BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
+    let birthday = text_of(item(hwnd, IDC_BIRTHDAY));
+    st.draft.birthday = config::parse_birthday(&birthday);
+    if !birthday.is_empty() && st.draft.birthday.is_none() {
+        show_page(hwnd, Page::General as usize);
+        info(hwnd, "Aniversário: use dia/mês, por exemplo 25/12.");
+        SetFocus(item(hwnd, IDC_BIRTHDAY));
+        return;
+    }
+    st.draft.updates = is_checked(hwnd, IDC_UPDATES);
+    st.draft.quiet_in_meetings = is_checked(hwnd, IDC_MEETINGS);
+    let autostart = is_checked(hwnd, IDC_AUTOSTART);
     mailbox::post(st.owner, WM_SETTINGS_APPLY, Draft { config: st.draft.clone(), autostart });
     DestroyWindow(hwnd);
 }
@@ -1204,7 +1232,8 @@ unsafe fn paint(hwnd: HWND) {
         let text_ink = if selected { theme::TEXT } else { theme::MUTED };
         c.text(font, label, RECT { left: x + s(46), top: y, right: x + w - s(6), bottom: y + h }, text_ink, left);
     }
-    c.text(st.small, "!StayAlone", RECT { left: 0, top: height - s(34), right: side, bottom: height - s(12) }, theme::DISABLED, center);
+    let version = format!("!StayAlone v{}", crate::update::current());
+    c.text(st.small, &version, RECT { left: 0, top: height - s(34), right: side, bottom: height - s(12) }, theme::DISABLED, center);
 
     // Título da página e os cartões atrás dos controles.
     let title = RECT { left: side + s(CARD_X), top: s(14), right: width - s(20), bottom: s(50) };
@@ -1220,35 +1249,16 @@ unsafe fn paint(hwnd: HWND) {
 /// Botões arredondados: o principal de cada área em laranja, os outros brancos.
 unsafe fn draw_button(hwnd: HWND, di: &DRAWITEMSTRUCT) {
     let Some(st) = state(hwnd) else { return };
-    let r = di.rcItem;
-    let (w, h) = (r.right - r.left, r.bottom - r.top);
     let id = di.CtlID as i32;
-    let primary = matches!(id, IDOK | IDC_SAVE_MASCOT | IDC_AI_GO | IDC_ADD | IDC_TEST | IDC_PLUGIN_TEST);
-    let pressed = di.itemState & ODS_SELECTED != 0;
-    let disabled = di.itemState & ODS_DISABLED != 0;
-    let focused = di.itemState & ODS_FOCUS != 0 && di.itemState & ODS_NOFOCUSRECT == 0;
-    let radius = scale(7, st.dpi);
-    let mut c = Canvas::new(w.max(1), h.max(1));
-    // Os cantos mostram o fundo de onde o botão está: cartão ou rodapé.
-    c.fill(0, 0, w, h, argb(if matches!(id, IDOK | IDCANCEL) { theme::BG } else { theme::CARD }));
-    let ink = if disabled {
-        c.card((0, 0, w, h), radius, argb(theme::SOFT), argb(theme::BORDER));
-        theme::DISABLED
-    } else if primary {
-        c.round_rect(0, 0, w, h, radius, argb(if pressed { theme::ACCENT_DARK } else { theme::ACCENT }));
-        theme::CARD
-    } else {
-        let border = if focused { theme::ACCENT } else { theme::BORDER };
-        c.card((0, 0, w, h), radius, argb(if pressed { theme::HOVER } else { theme::CARD }), argb(border));
-        theme::TEXT
+    let style = ui::ButtonStyle {
+        primary: matches!(id, IDOK | IDC_SAVE_MASCOT | IDC_AI_GO | IDC_ADD | IDC_TEST | IDC_PLUGIN_TEST),
+        // Os cantos mostram o fundo de onde o botão está: cartão ou rodapé.
+        background: if matches!(id, IDOK | IDCANCEL) { theme::BG } else { theme::CARD },
+        font: st.font,
+        bold: st.bold,
+        dpi: st.dpi,
     };
-    if primary && focused && !disabled {
-        c.card((scale(2, st.dpi), scale(2, st.dpi), w - scale(4, st.dpi), h - scale(4, st.dpi)), radius - 2, argb(theme::ACCENT_DARK), argb(0xF7C9A3));
-        c.round_rect(scale(3, st.dpi), scale(3, st.dpi), w - scale(6, st.dpi), h - scale(6, st.dpi), radius - 3, argb(if pressed { theme::ACCENT_DARK } else { theme::ACCENT }));
-    }
-    let font = if primary { st.bold } else { st.font };
-    c.text(font, &text_of(di.hwndItem), RECT { left: 0, top: 0, right: w, bottom: h }, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    c.blit(di.hDC, r.left, r.top);
+    ui::draw_button(di, &style);
 }
 
 /// Mascote mostrado na barra lateral: (nome, sprite parado).

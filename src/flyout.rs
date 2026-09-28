@@ -53,6 +53,8 @@ pub enum Action {
     Reminders,
     Summary,
     Settings,
+    /// Baixar e instalar a versão nova.
+    Update,
     Quit,
 }
 
@@ -77,6 +79,8 @@ pub struct Model {
     pub silenced: bool,
     pub hidden: bool,
     pub reminders_on: usize,
+    /// Versão nova disponível (mostra a faixa "Atualizar").
+    pub update: Option<String>,
 }
 
 /// Lado direito de uma linha.
@@ -93,6 +97,8 @@ enum Part {
     Panel,
     Header,
     Stats,
+    /// Faixa de destaque (versão nova).
+    Banner(String),
     Tile { glyph: char, label: &'static str, active: bool },
     Caption(&'static str),
     Mascot(usize),
@@ -127,6 +133,10 @@ fn layout(m: &Model, dpi: u32) -> (Vec<Item>, i32) {
     y += s(54);
     add(rect(x0, y, inner, s(20)), Part::Stats, None);
     y += s(30);
+    if let Some(version) = &m.update {
+        add(rect(x0, y, inner, s(38)), Part::Banner(format!("Versão {version} disponível — atualizar")), Some(Action::Update));
+        y += s(38) + s(12);
+    }
 
     // Atalhos grandes.
     let tiles = [
@@ -369,6 +379,12 @@ impl Flyout {
                 }
             }
             Part::Stats => c.text(small, &self.model.stats, r, theme::MUTED, left),
+            Part::Banner(text) => {
+                let fill = if hover { theme::ACCENT_DARK } else { theme::ACCENT };
+                c.round_rect(x, y, w, h, s(10), argb(fill));
+                c.text(icon_font, &icon::DOWNLOAD.to_string(), rect(x + s(8), y, s(24), h), theme::CARD, center);
+                c.text(body, text, rect(x + s(38), y, w - s(46), h), theme::CARD, left);
+            }
             Part::Tile { glyph, label, active } => {
                 let bg = match (active, hover) {
                     (true, false) => theme::ACCENT,
@@ -531,6 +547,7 @@ mod tests {
             silenced: false,
             hidden: false,
             reminders_on: 2,
+            update: None,
         }
     }
 

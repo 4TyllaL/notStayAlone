@@ -16,20 +16,20 @@
 
 use std::{
     fs,
-    io::{Read, Write},
-    os::windows::process::CommandExt,
+    io::Read,
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
-    thread::JoinHandle,
-    time::{Duration, Instant},
+    process::Command,
 };
 
 use windows_sys::Win32::{Foundation::HWND, System::SystemInformation::GetSystemDirectoryW};
 
-use crate::{ai::{self, json::quote}, config::read_file, mailbox, sha256, win::clean_line};
-
-/// Resposta de um plugin: o texto, ou a mensagem de erro.
-pub type Reply = Result<String, String>;
+use crate::{
+    ai::{self, json::quote},
+    child::{self, Reply},
+    config::read_file,
+    sha256,
+    win::clean_line,
+};
 
 /// O plugin de conversa com IA que vem com o app: o próprio .exe, no modo `--ia`.
 pub const NATIVE_ID: &str = "nativo";
@@ -37,8 +37,6 @@ const MANIFEST: &str = "plugin.ini";
 const MAX_PLUGINS: usize = 50;
 /// Programas maiores que isso não são aceitos (a impressão digital lê o arquivo todo).
 const MAX_PROGRAM: u64 = 64 * 1024 * 1024;
-/// Um plugin que não termina nesse tempo é encerrado.
-const TIMEOUT: Duration = Duration::from_secs(120);
 /// O que um plugin escrever além disso é ignorado (o balão mostra bem menos).
 const MAX_OUTPUT: u64 = 16 * 1024;
 /// Intervalo dos avisos, em minutos.
@@ -155,9 +153,7 @@ impl Plugin {
             c.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(&self.program);
             c
         } else if self.is_native() {
-            let mut c = Command::new(&self.program);
-            c.arg(ai::ARG);
-            c
+            child::this_app(&[ai::ARG])
         } else {
             Command::new(&self.program)
         };
@@ -267,67 +263,16 @@ pub fn request<T: Send + 'static>(
     input: String,
     wrap: impl FnOnce(Reply) -> T + Send + 'static,
 ) {
-    let (plugin, target) = (plugin.clone(), to as isize);
-    std::thread::spawn(move || {
+    let plugin = plugin.clone();
+    let job = move || {
         let intact = approved.is_none_or(|expected| plugin.fingerprint().as_deref() == Some(expected.as_str()));
-        let reply = if intact { run(&plugin, &input) } else { Err(CHANGED.into()) };
-        mailbox::post(target as HWND, msg, wrap(reply));
-    });
-}
-
-fn run(plugin: &Plugin, input: &str) -> Reply {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut child = plugin
-        .command()
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|e| format!("não consegui abrir o plugin ({e})"))?;
-    // Lê as saídas em paralelo e com limite: o plugin nunca trava escrevendo
-    // e não consegue encher a memória do app.
-    let stdout = drain(child.stdout.take());
-    let stderr = drain(child.stderr.take());
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(input.as_bytes()); // se falhar, o plugin reclama no stderr
-    }
-    let status = wait(&mut child, TIMEOUT);
-    let (out, err) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
-    match status {
-        None => Err("o plugin demorou demais e foi encerrado.".into()),
-        Some(s) if s.success() => Ok(String::from_utf8_lossy(&out).trim().trim_start_matches('\u{feff}').to_string()),
-        Some(_) => {
-            let err = String::from_utf8_lossy(&err).trim().to_string();
-            Err(if err.is_empty() { "o plugin falhou".into() } else { err })
+        if intact {
+            child::run(plugin.command(), &input, MAX_OUTPUT)
+        } else {
+            Err(CHANGED.into())
         }
-    }
-}
-
-fn drain<R: Read + Send + 'static>(pipe: Option<R>) -> JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(pipe) = pipe {
-            let _ = pipe.take(MAX_OUTPUT).read_to_end(&mut bytes);
-        }
-        bytes
-    })
-}
-
-/// Espera o plugin terminar; passado o `timeout`, encerra o processo (`None`).
-fn wait(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
-    let start = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some(status),
-            Ok(None) if start.elapsed() < timeout => std::thread::sleep(Duration::from_millis(100)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
+    };
+    child::spawn(to, msg, job, wrap);
 }
 
 #[cfg(test)]

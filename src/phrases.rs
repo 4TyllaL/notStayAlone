@@ -37,6 +37,8 @@ pub enum Topic {
     Chat,
     /// Aviso de um plugin (texto vem do plugin).
     Plugin,
+    /// Aviso do próprio app (versão nova etc.), com texto pronto.
+    App,
 }
 
 /// Nomes no arquivo, na mesma ordem do enum `Topic`.

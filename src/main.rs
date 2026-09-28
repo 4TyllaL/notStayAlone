@@ -4,6 +4,7 @@
 mod ai;
 mod bubble;
 mod chat;
+mod child;
 mod companion;
 mod config;
 mod flyout;
@@ -11,6 +12,7 @@ mod gfx;
 mod mailbox;
 mod maker;
 mod mascot;
+mod net;
 mod pack;
 mod phrases;
 mod plugins;
@@ -23,6 +25,9 @@ mod sprite;
 mod system;
 mod theme;
 mod tray;
+mod ui;
+mod update;
+mod welcome;
 mod win;
 
 use std::{
@@ -50,13 +55,15 @@ use gfx::Canvas;
 use mascot::{Bounds, Mascot, SLEEPY_DAY, SLEEPY_NIGHT};
 use pack::PackInfo;
 use phrases::{Phrases, Topic};
-use plugins::{Kind as PluginKind, Plugin, Reply};
+use child::Reply;
+use plugins::{Kind as PluginKind, Plugin};
 use prop::{Kind, Prop};
 use rng::Rng;
 use settings::{Draft, Page, WM_MASCOT_SAVED, WM_SETTINGS_APPLY};
 use sprite::{Art, Frame, Sheet, PIXELS, SPRITE};
 use system::{bounds_at, clock, cursor, fullscreen_app_running, idle_secs, last_input, ms_since, power};
 use tray::{Tray, WM_TRAY};
+use welcome::WM_WELCOME_DONE;
 use win::{message, w};
 
 const TIMER_ANIM: usize = 1;
@@ -80,6 +87,13 @@ const WM_REMOTE: u32 = WM_APP + 4;
 const WM_PLUGIN_SAY: u32 = WM_APP + 9;
 /// Primeiro aviso de cada plugin: um minuto depois de abrir (ou de ligar o plugin).
 const NOTICE_FIRST_SECS: u64 = 60;
+/// Resposta do filho que procura versões novas (`Reply` no `mailbox`).
+const WM_UPDATE_CHECKED: u32 = WM_APP + 11;
+/// Versão nova baixada e conferida (`Reply` com o caminho, no `mailbox`).
+const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 12;
+/// Primeira procura por versão nova: dois minutos depois de abrir; depois, uma vez por dia.
+const UPDATE_FIRST_SECS: u64 = 120;
+const UPDATE_EVERY_SECS: u64 = 24 * 3600;
 
 /// Argumentos aceitos na linha de comando (úteis em atalhos do Windows).
 /// Outra instância repassa o índice nesta lista com `WM_REMOTE`.
@@ -93,11 +107,23 @@ const COMMANDS: [(&str, Action); 6] = [
 ];
 
 fn main() {
-    // Aberto por ele mesmo para conversar com a IA: sem janela, só stdin → stdout.
-    if std::env::args().nth(1).as_deref() == Some(ai::ARG) {
-        std::process::exit(ai::serve());
+    let args: Vec<String> = std::env::args().collect();
+    let arg = |i: usize| args.get(i).map_or("", String::as_str);
+    // Modos internos: o app abre a si mesmo para as tarefas de rede (sem janela).
+    match arg(1) {
+        ai::ARG => std::process::exit(ai::serve()),
+        update::ARG_CHECK => std::process::exit(update::serve_check()),
+        update::ARG_DOWNLOAD => std::process::exit(update::serve_download(arg(2))),
+        _ => {}
     }
-    let command = std::env::args().nth(1).and_then(|arg| COMMANDS.iter().position(|(a, _)| *a == arg));
+    // Recém-atualizado: espera a versão antiga fechar antes de ocupar o lugar dela.
+    let just_updated = arg(1) == update::ARG_AFTER;
+    if just_updated {
+        update::finish(arg(2));
+    } else {
+        update::cleanup();
+    }
+    let command = COMMANDS.iter().position(|(a, _)| *a == arg(1));
     unsafe {
         let _instance = CreateMutexW(null(), 0, w("Local\\StayAlone.Instance").as_ptr());
         if GetLastError() == ERROR_ALREADY_EXISTS {
@@ -115,6 +141,7 @@ fn main() {
         let Some(prop_hwnd) = create_window(hinstance, "StayAloneProp", Some(prop_proc), hwnd) else { return };
         SetWindowLongPtrW(prop_hwnd, GWLP_USERDATA, hwnd as isize);
 
+        let first_run = !config::exists();
         let config = Config::load();
         let base_phrases = load_asset("phrases.txt", phrases::EMBEDDED, Phrases::parse);
         let props = Sheet::parse(sprite::PROPS).expect("props embutidos válidos");
@@ -131,14 +158,20 @@ fn main() {
         let app = Box::into_raw(Box::new(app));
         (*app).config.mascot = pack;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
+        if just_updated {
+            (*app).pending = Some((Topic::App, Some(format!("Atualizei! Agora estou na versão {}.", update::current()))));
+        }
         (*app).start();
+        if first_run {
+            welcome::open(hwnd, &(*app).config.mascot, (*app).app_icon);
+        }
         if let Some(cmd) = command {
             PostMessageW(hwnd, WM_REMOTE, cmd, 0);
         }
 
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
-            if chat::pre_translate(&msg) || settings::is_dialog_message(&msg) {
+            if chat::pre_translate(&msg) || settings::is_dialog_message(&msg) || welcome::is_dialog_message(&msg) {
                 continue;
             }
             TranslateMessage(&msg);
@@ -292,6 +325,11 @@ struct App {
     /// Plugin que responde à conversa (nenhum = conversa desligada).
     chat_plugin: Option<Plugin>,
     notices: Vec<Notice>,
+    /// Versão nova encontrada no GitHub (o painel oferece atualizar).
+    update: Option<update::Release>,
+    /// Procurando ou baixando versão nova agora.
+    update_busy: bool,
+    update_checked: Option<u64>,
 }
 
 impl App {
@@ -358,6 +396,9 @@ impl App {
             chat_busy: false,
             chat_plugin: None,
             notices: Vec::new(),
+            update: None,
+            update_busy: false,
+            update_checked: None,
         }
     }
 
@@ -556,6 +597,7 @@ impl App {
         }
         self.check_toy_done(now.secs);
         self.run_notices(now.secs, hour);
+        self.check_updates(now.secs);
 
         let night = !(6..22).contains(&hour);
         let cheer = match self.companion.affection {
@@ -757,6 +799,68 @@ impl App {
         }
     }
 
+    // --- atualização --------------------------------------------------------
+
+    /// Terminou (ou fechou) as boas-vindas.
+    unsafe fn on_welcome(&mut self, choices: welcome::Choices) {
+        for (reminder, on) in self.config.companion.reminders.iter_mut().zip(choices.reminders) {
+            reminder.on = on;
+        }
+        self.companion.set_settings(self.config.companion.clone());
+        if choices.autostart != config::autostart_enabled() {
+            config::set_autostart(choices.autostart);
+        }
+        self.config.save();
+        match pack::list().into_iter().find(|p| p.id == choices.mascot) {
+            Some(info) if info.id != self.config.mascot => self.set_mascot(&info), // já diz "oi"
+            _ => self.say(Topic::Hello),
+        }
+    }
+
+    unsafe fn check_updates(&mut self, secs: u64) {
+        let due = match self.update_checked {
+            None => secs >= UPDATE_FIRST_SECS,
+            Some(last) => secs >= last + UPDATE_EVERY_SECS,
+        };
+        if self.config.updates && !self.update_busy && due {
+            self.update_checked = Some(secs);
+            self.update_busy = true;
+            update::check(self.hwnd, WM_UPDATE_CHECKED);
+        }
+    }
+
+    unsafe fn on_update_checked(&mut self, reply: Reply) {
+        self.update_busy = false;
+        // Sem internet ou GitHub fora do ar: tenta de novo amanhã, sem incomodar.
+        let Some(release) = reply.ok().and_then(|line| update::Release::from_line(&line)) else { return };
+        if update::is_newer(&release.version, update::current()) && self.update.as_ref() != Some(&release) {
+            let text = format!("Tem versão nova de mim (v{})! Abra o painel para atualizar.", release.version);
+            self.update = Some(release);
+            self.speak(Topic::App, Some(text));
+        }
+    }
+
+    unsafe fn start_update(&mut self) {
+        let Some(release) = self.update.clone().filter(|_| !self.update_busy) else { return };
+        self.update_busy = true;
+        self.speak(Topic::App, Some(format!("Baixando a versão {}...", release.version)));
+        update::fetch(self.hwnd, WM_UPDATE_DOWNLOADED, &release);
+    }
+
+    unsafe fn on_update_downloaded(&mut self, reply: Reply) {
+        self.update_busy = false;
+        let installed = reply.and_then(|path| {
+            self.save_state();
+            update::install(&path)
+        });
+        match installed {
+            Ok(()) => {
+                DestroyWindow(self.hwnd); // a versão nova já está abrindo
+            }
+            Err(e) => self.speak(Topic::App, Some(chat::shorten(&format!("Não consegui atualizar: {e}")))),
+        }
+    }
+
     /// OK na janela de configurações.
     unsafe fn apply_settings(&mut self, draft: &Draft) {
         let new = &draft.config;
@@ -771,6 +875,12 @@ impl App {
         self.config.speed = new.speed;
         self.mascot.set_speed(new.speed as f32);
         self.config.companion = new.companion.clone();
+        self.config.updates = new.updates;
+        self.config.birthday = new.birthday;
+        self.config.quiet_in_meetings = new.quiet_in_meetings;
+        self.config.memory = new.memory;
+        self.config.theme = new.theme;
+        self.config.language = new.language;
         self.companion.set_settings(new.companion.clone());
         if draft.autostart != config::autostart_enabled() {
             config::set_autostart(draft.autostart);
@@ -1110,6 +1220,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         silenced: app.companion.silenced(secs),
         hidden: app.user_hidden,
         reminders_on: app.config.companion.reminders.iter().filter(|r| r.on).count(),
+        update: app.update.as_ref().map(|r| r.version.clone()),
     };
     flyout::open(hwnd, model, cursor());
 }
@@ -1156,6 +1267,7 @@ unsafe fn run_action(hwnd: HWND, action: Action) {
         Action::Settings | Action::MoreMascots => settings::open(hwnd, &app.config, app.app_icon, Page::General),
         Action::Reminders => settings::open(hwnd, &app.config, app.app_icon, Page::Reminders),
         Action::NewMascot => settings::open(hwnd, &app.config, app.app_icon, Page::Maker),
+        Action::Update => app.start_update(),
         Action::Quit => {
             DestroyWindow(hwnd);
         }
@@ -1249,6 +1361,21 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_CHAT_SEND => {
             if let Some(text) = mailbox::take::<String>(hwnd, msg) {
                 app.on_chat_send(text);
+            }
+        }
+        WM_WELCOME_DONE => {
+            if let Some(choices) = mailbox::take::<welcome::Choices>(hwnd, msg) {
+                app.on_welcome(choices);
+            }
+        }
+        WM_UPDATE_CHECKED => {
+            if let Some(reply) = mailbox::take::<Reply>(hwnd, msg) {
+                app.on_update_checked(reply);
+            }
+        }
+        WM_UPDATE_DOWNLOADED => {
+            if let Some(reply) = mailbox::take::<Reply>(hwnd, msg) {
+                app.on_update_downloaded(reply);
             }
         }
         WM_PLUGIN_SAY => {

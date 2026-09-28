@@ -80,6 +80,68 @@ pub struct Config {
     /// Plugins ligados (com a impressão digital que você aprovou).
     pub plugins: Vec<Enabled>,
     pub companion: Settings,
+    /// Procurar versões novas no GitHub uma vez por dia.
+    pub updates: bool,
+    /// Seu aniversário (dia, mês), para o mascote comemorar.
+    pub birthday: Option<(u32, u32)>,
+    /// Ficar quieto enquanto um programa de reunião está em primeiro plano
+    /// (olha só o nome do programa, nunca o conteúdo).
+    pub quiet_in_meetings: bool,
+    /// Segundo mascote na tela (id do pacote; vazio = nenhum).
+    pub buddy: String,
+    /// O mascote lembra de coisas que você contou na conversa.
+    pub memory: bool,
+    pub theme: Theme,
+    pub language: Language,
+}
+
+/// Claro, escuro ou o mesmo do Windows.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Theme {
+    Auto,
+    Light,
+    Dark,
+}
+
+impl Theme {
+    pub const ALL: [Theme; 3] = [Theme::Auto, Theme::Light, Theme::Dark];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Theme::Auto => "auto",
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
+}
+
+/// Idioma da interface: o do Windows, português ou inglês.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Language {
+    Auto,
+    Portuguese,
+    English,
+}
+
+impl Language {
+    pub const ALL: [Language; 3] = [Language::Auto, Language::Portuguese, Language::English];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Language::Auto => "auto",
+            Language::Portuguese => "pt",
+            Language::English => "en",
+        }
+    }
+}
+
+/// "25/12" → (25, 12), só datas que existem.
+pub fn parse_birthday(text: &str) -> Option<(u32, u32)> {
+    let (day, month) = text.trim().split_once('/')?;
+    let (day, month) = (day.trim().parse::<u32>().ok()?, month.trim().parse::<u32>().ok()?);
+    let days = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    (1..=12).contains(&month).then_some(())?;
+    (1..=days[month as usize - 1]).contains(&day).then_some((day, month))
 }
 
 /// Chaves dos lembretes embutidos no config.ini, na ordem de `ReminderKind::BUILT_IN`.
@@ -110,6 +172,11 @@ pub fn read_file(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// Já existe um config.ini? (senão, é a primeira vez: o app mostra as boas-vindas)
+pub fn exists() -> bool {
+    dir().is_some_and(|d| d.join("config.ini").is_file())
+}
+
 /// Afeto e estatísticas do dia (formato em `Companion::save_string`).
 pub fn read_state() -> Option<String> {
     read("state.ini")
@@ -135,6 +202,13 @@ impl Config {
             mascot: crate::pack::DEFAULT.to_string(),
             plugins: Vec::new(),
             companion: Settings::default(),
+            updates: true,
+            birthday: None,
+            quiet_in_meetings: false,
+            buddy: String::new(),
+            memory: true,
+            theme: Theme::Auto,
+            language: Language::Auto,
         };
         // Config de antes dos plugins: vale o padrão (só a conversa nativa ligada).
         let mut plugins_saved = false;
@@ -150,6 +224,13 @@ impl Config {
                 }
                 "speed" => config.speed = number.unwrap_or(1).clamp(1, 4),
                 "mascot" if !value.is_empty() => config.mascot = value.to_lowercase(),
+                "updates" => config.updates = value != "off",
+                "birthday" => config.birthday = parse_birthday(value),
+                "quiet_in_meetings" => config.quiet_in_meetings = value == "on",
+                "buddy" => config.buddy = value.to_lowercase(),
+                "memory" => config.memory = value != "off",
+                "theme" => config.theme = Theme::ALL.into_iter().find(|t| t.key() == value).unwrap_or(Theme::Auto),
+                "language" => config.language = Language::ALL.into_iter().find(|l| l.key() == value).unwrap_or(Language::Auto),
                 "plugins" => plugins_saved = true,
                 // plugin=id|impressão digital (o nativo não tem)
                 "plugin" => {
@@ -222,6 +303,29 @@ impl Config {
                 text += &format!("reminder={}|{}|{}\n", on(r), r.minutes, clean_line(label, MAX_REMINDER_TEXT));
             }
         }
+        let on_off = |on: bool| if on { "on" } else { "off" };
+        let birthday = self.birthday.map_or(String::new(), |(d, m)| format!("{d:02}/{m:02}"));
+        text += &format!(
+            "# procurar versões novas no GitHub uma vez por dia: on | off\n\
+             updates={}\n\
+             # seu aniversário (dia/mês), para o mascote comemorar\n\
+             birthday={birthday}\n\
+             # ficar quieto com programa de reunião aberto (Teams, Zoom...): on | off\n\
+             quiet_in_meetings={}\n\
+             # segundo mascote na tela (vazio = nenhum)\n\
+             buddy={}\n\
+             # o mascote lembra do que você contou na conversa: on | off\n\
+             memory={}\n\
+             # tema: auto | light | dark    idioma: auto | pt | en\n\
+             theme={}\n\
+             language={}\n",
+            on_off(self.updates),
+            on_off(self.quiet_in_meetings),
+            self.buddy,
+            on_off(self.memory),
+            self.theme.key(),
+            self.language.key()
+        );
         text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256\nplugins=\n";
         for e in &self.plugins {
             text += &if e.fingerprint.is_empty() { format!("plugin={}\n", e.id) } else { format!("plugin={}|{}\n", e.id, e.fingerprint) };
@@ -443,6 +547,30 @@ mod tests {
         fs::write(&path, "ok").unwrap();
         assert_eq!(read_file(&path).as_deref(), Some("ok"));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn new_options_round_trip() {
+        let mut c = Config::parse("");
+        assert!(c.updates && c.memory && !c.quiet_in_meetings && c.birthday.is_none());
+        c.updates = false;
+        c.birthday = Some((7, 3));
+        c.quiet_in_meetings = true;
+        c.buddy = "lance".into();
+        c.memory = false;
+        c.theme = Theme::Dark;
+        c.language = Language::English;
+        let back = Config::parse(&c.to_text());
+        assert!(!back.updates && !back.memory && back.quiet_in_meetings);
+        assert_eq!((back.birthday, back.buddy.as_str(), back.theme, back.language), (Some((7, 3)), "lance", Theme::Dark, Language::English));
+    }
+
+    #[test]
+    fn birthdays_must_exist() {
+        assert_eq!(parse_birthday("29/2"), Some((29, 2)));
+        assert_eq!(parse_birthday(" 5 / 12 "), Some((5, 12)));
+        assert!(parse_birthday("31/4").is_none() && parse_birthday("0/1").is_none() && parse_birthday("1/13").is_none());
+        assert!(parse_birthday("amanhã").is_none());
     }
 
     #[test]
