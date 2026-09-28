@@ -3,6 +3,7 @@
 
 mod ai;
 mod bubble;
+mod buddy;
 mod chat;
 mod child;
 mod companion;
@@ -48,6 +49,7 @@ use windows_sys::Win32::{
 };
 
 use bubble::{Bubble, WM_BUBBLE_CLICK};
+use buddy::{Arrived, Buddy, WM_BUDDY_MOUSE};
 use chat::{WM_CHAT_REPLY, WM_CHAT_SEND};
 use companion::{Companion, Event, Now, TypingSensor};
 use flyout::{Action, Choice, WM_FLYOUT_ACTION};
@@ -141,6 +143,8 @@ fn main() {
         let Some(hwnd) = create_window(hinstance, "StayAloneMascot", Some(wndproc), null_mut()) else { return };
         let Some(prop_hwnd) = create_window(hinstance, "StayAloneProp", Some(prop_proc), hwnd) else { return };
         SetWindowLongPtrW(prop_hwnd, GWLP_USERDATA, hwnd as isize);
+        let Some(buddy_hwnd) = create_window(hinstance, "StayAloneBuddy", Some(buddy::proc), hwnd) else { return };
+        SetWindowLongPtrW(buddy_hwnd, GWLP_USERDATA, hwnd as isize);
 
         let first_run = !config::exists();
         let config = Config::load();
@@ -158,6 +162,7 @@ fn main() {
         let app = App::new(hwnd, prop_hwnd, art, props, base_phrases, phrases, bubble, config);
         let app = Box::into_raw(Box::new(app));
         (*app).config.mascot = pack;
+        (*app).buddy_hwnd = buddy_hwnd;
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, app as isize);
         if just_updated {
             (*app).pending = Some((Topic::App, Some(format!("Atualizei! Agora estou na versão {}.", update::current()))));
@@ -251,6 +256,7 @@ unsafe fn pixel_scale(size: Size) -> i32 {
 enum Grab {
     Mascot,
     Toy,
+    Buddy,
 }
 
 struct Press {
@@ -284,6 +290,9 @@ struct Toy {
 struct App {
     hwnd: HWND,
     prop_hwnd: HWND,
+    /// Janela do amigo na tela (escondida quando não há amigo).
+    buddy_hwnd: HWND,
+    buddy: Option<Buddy>,
     art: Art,
     props: Sheet,
     base_phrases: Phrases,
@@ -368,6 +377,8 @@ impl App {
         App {
             hwnd,
             prop_hwnd,
+            buddy_hwnd: null_mut(),
+            buddy: None,
             tray: Tray::new(hwnd, &art),
             app_icon: LoadIconW(GetModuleHandleW(null()), 1 as _),
             art,
@@ -423,6 +434,9 @@ impl App {
         SetTimer(self.hwnd, TIMER_WATCH, WATCH_MS, None);
         self.busy_hidden = fullscreen_app_running();
         self.update_visibility();
+        if !self.config.buddy.is_empty() {
+            self.set_buddy(&self.config.buddy.clone());
+        }
     }
 
     fn secs(&self) -> u64 {
@@ -445,6 +459,9 @@ impl App {
             SetWindowPos(self.hwnd, null_mut(), pos.0, pos.1, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
         self.shown_at = pos;
+        if let Some(b) = self.buddy.as_mut() {
+            b.present();
+        }
     }
 
     unsafe fn present_toy(&mut self) {
@@ -488,7 +505,7 @@ impl App {
     unsafe fn covered(&self) -> bool {
         let mut above = GetWindow(self.hwnd, GW_HWNDPREV);
         while !above.is_null() {
-            let ours = above == self.prop_hwnd || GetWindow(above, GW_OWNER) == self.hwnd;
+            let ours = above == self.prop_hwnd || above == self.buddy_hwnd || GetWindow(above, GW_OWNER) == self.hwnd;
             if !ours && IsWindowVisible(above) != 0 {
                 return true;
             }
@@ -502,7 +519,7 @@ impl App {
         let visible = self.visible();
         let toy_moving = self.toy.as_ref().is_some_and(|t| !t.prop.held && !t.prop.resting(&t.bounds));
         let wanted = [
-            (TIMER_ANIM, if visible { self.mascot.interval_ms() } else { 0 }),
+            (TIMER_ANIM, if visible { self.anim_interval() } else { 0 }),
             (TIMER_PROP, if visible && toy_moving { PROP_MS } else { 0 }),
             (TIMER_SENSE, if visible && !self.companion.away() { SENSE_MS } else { 0 }),
         ];
@@ -533,10 +550,54 @@ impl App {
         self.mascot.set_still(typing);
         self.mascot.update(dt, &self.bounds);
         if self.mascot.take_arrived() {
-            self.on_arrive();
+            self.on_arrive(false);
+        }
+        let toy_x = self.toy.as_ref().map(|t| t.prop.center_x());
+        let friend = (self.mascot.x + self.mascot.size() / 2.0, self.mascot.size());
+        let arrived = self.buddy.as_mut().and_then(|b| {
+            b.mascot.set_still(typing);
+            b.tick(dt, &self.bounds, toy_x, friend)
+        });
+        match arrived {
+            // Encontro: os dois comemoram.
+            Some(Arrived::Friend) => {
+                self.mascot.cheer();
+                if let Some(b) = self.buddy.as_mut() {
+                    b.mascot.cheer();
+                }
+            }
+            Some(Arrived::Toy) => self.on_arrive(true),
+            None => {}
         }
         self.present();
         self.sync_timer();
+    }
+
+    /// Ritmo da animação: o mais rápido que algum dos dois mascotes precisa.
+    fn anim_interval(&self) -> u32 {
+        let buddy = self.buddy.as_ref().map_or(u32::MAX, |b| b.mascot.interval_ms());
+        self.mascot.interval_ms().min(buddy)
+    }
+
+    // --- amigo na tela -------------------------------------------------------
+
+    /// Troca (ou tira, com `id` vazio) o amigo na tela.
+    unsafe fn set_buddy(&mut self, id: &str) {
+        self.config.buddy = id.to_string();
+        let info = pack::list().into_iter().find(|p| !id.is_empty() && p.id == id);
+        self.buddy = info.and_then(|info| pack::load(&info).ok()).map(|p| {
+            let seed = self.rng.range(1, u32::MAX) as u64;
+            Buddy::new(self.buddy_hwnd, p.art, self.scale, self.config.speed, seed, &self.bounds)
+        });
+        self.update_visibility();
+    }
+
+    /// O amigo (se houver) ou o principal.
+    fn body_mut(&mut self, buddy: bool) -> &mut Mascot {
+        match self.buddy.as_mut().filter(|_| buddy) {
+            Some(b) => &mut b.mascot,
+            None => &mut self.mascot,
+        }
     }
 
     unsafe fn on_prop_tick(&mut self) {
@@ -602,8 +663,17 @@ impl App {
                     self.hide_bubble();
                     self.remove_toy();
                     self.mascot.doze();
+                    if let Some(b) = self.buddy.as_mut() {
+                        b.stop_visiting();
+                        b.mascot.doze();
+                    }
                 }
-                Event::WakeUp => self.mascot.wake_happy(),
+                Event::WakeUp => {
+                    self.mascot.wake_happy();
+                    if let Some(b) = self.buddy.as_mut() {
+                        b.mascot.wake_happy();
+                    }
+                }
             }
         }
         if self.watch_count % POWER_EVERY == 1 {
@@ -611,6 +681,9 @@ impl App {
                 self.say(topic);
             }
             self.mascot.set_tired(self.companion.low_battery);
+            if let Some(b) = self.buddy.as_mut() {
+                b.mascot.set_tired(self.companion.low_battery);
+            }
         }
         if let Some((topic, text)) = self.pending.take() {
             self.speak(topic, text);
@@ -625,7 +698,11 @@ impl App {
             a if a >= 40.0 => 3,
             _ => 0,
         };
-        self.mascot.set_mood(if night || self.companion.low_battery { SLEEPY_NIGHT } else { SLEEPY_DAY }, cheer);
+        let sleepy = if night || self.companion.low_battery { SLEEPY_NIGHT } else { SLEEPY_DAY };
+        self.mascot.set_mood(sleepy, cheer);
+        if let Some(b) = self.buddy.as_mut() {
+            b.mascot.set_mood(sleepy, cheer);
+        }
         if self.companion.hearts() != self.hearts {
             self.hearts = self.companion.hearts();
             self.tray.set_tip(&self.tip());
@@ -640,6 +717,9 @@ impl App {
     unsafe fn on_display_change(&mut self) {
         self.refresh_bounds();
         self.mascot.settle(&self.bounds);
+        if let Some(b) = self.buddy.as_mut() {
+            b.mascot.settle(&self.bounds);
+        }
         self.present();
         self.sync_timer();
     }
@@ -660,10 +740,21 @@ impl App {
                 self.present_toy();
                 ShowWindow(self.prop_hwnd, SW_SHOWNOACTIVATE);
             }
+            match self.buddy.as_mut() {
+                Some(b) => {
+                    b.invalidate();
+                    b.present();
+                    ShowWindow(self.buddy_hwnd, SW_SHOWNOACTIVATE);
+                }
+                None => {
+                    ShowWindow(self.buddy_hwnd, SW_HIDE);
+                }
+            }
         } else {
             self.hide_bubble();
             ShowWindow(self.hwnd, SW_HIDE);
             ShowWindow(self.prop_hwnd, SW_HIDE);
+            ShowWindow(self.buddy_hwnd, SW_HIDE);
         }
         self.sync_timer();
     }
@@ -680,6 +771,9 @@ impl App {
         self.config.save();
         self.scale = pixel_scale(size);
         self.fit_body();
+        if let Some(b) = self.buddy.as_mut() {
+            b.resize(self.scale, &self.bounds);
+        }
         self.present();
         self.sync_timer();
     }
@@ -910,6 +1004,12 @@ impl App {
         }
         self.config.speed = new.speed;
         self.mascot.set_speed(new.speed as f32);
+        if let Some(b) = self.buddy.as_mut() {
+            b.mascot.set_speed(new.speed as f32);
+        }
+        if new.buddy != self.config.buddy {
+            self.set_buddy(&new.buddy);
+        }
         self.config.companion = new.companion.clone();
         self.config.updates = new.updates;
         self.config.birthday = new.birthday;
@@ -955,6 +1055,10 @@ impl App {
         ShowWindow(self.prop_hwnd, SW_SHOWNOACTIVATE);
         self.hide_bubble();
         self.mascot.set_target(Some(x + size / 2.0));
+        if let Some(b) = self.buddy.as_mut() {
+            b.stop_visiting();
+            b.mascot.set_target(Some(x + size / 2.0));
+        }
         self.present();
         self.sync_timer();
     }
@@ -963,6 +1067,9 @@ impl App {
         if self.toy.take().is_some() {
             ShowWindow(self.prop_hwnd, SW_HIDE);
             self.mascot.set_target(None);
+            if let Some(b) = self.buddy.as_mut() {
+                b.mascot.set_target(None);
+            }
             if matches!(self.press, Some(Press { what: Grab::Toy, .. })) {
                 self.press = None;
                 ReleaseCapture();
@@ -971,24 +1078,28 @@ impl App {
         }
     }
 
-    /// O mascote alcançou o objeto.
-    unsafe fn on_arrive(&mut self) {
+    /// Um mascote (o principal ou o amigo, `buddy`) alcançou o objeto.
+    unsafe fn on_arrive(&mut self, buddy: bool) {
         let Some(toy) = self.toy.as_ref() else { return };
-        if toy.prop.held {
-            self.mascot.hop(); // pulando para pegar da sua mão
+        let held = toy.prop.held;
+        let (kind, on_floor, prop_y, prop_center, floor) =
+            (toy.prop.kind, toy.prop.on_floor(&toy.bounds), toy.prop.y, toy.prop.center_x(), toy.bounds.floor);
+        let body = self.body_mut(buddy);
+        if held {
+            body.hop(); // pulando para pegar da sua mão
             return;
         }
-        let size = self.mascot.size();
-        let kind = toy.prop.kind;
-        let on_floor = toy.prop.on_floor(&toy.bounds);
-        let low = toy.prop.y + size >= toy.bounds.floor - size * 0.6;
-        let side = (toy.prop.center_x() - (self.mascot.x + size / 2.0)).signum();
+        let size = body.size();
+        let low = prop_y + size >= floor - size * 0.6;
+        let side = (prop_center - (body.x + size / 2.0)).signum();
         match kind {
             Kind::Food if on_floor => {
                 self.remove_toy();
-                self.mascot.eat();
+                self.body_mut(buddy).eat();
                 self.companion.on_fed(self.secs());
-                self.say(Topic::Yummy);
+                if !buddy {
+                    self.say(Topic::Yummy); // quem fala é o principal
+                }
             }
             Kind::Ball if low => {
                 let dir = if side == 0.0 { 1.0 } else { side };
@@ -998,7 +1109,7 @@ impl App {
                     toy.prop.throw(dir * vx * k, -vy * k);
                     toy.kicks += 1;
                 }
-                self.mascot.hop();
+                self.body_mut(buddy).hop();
             }
             _ => {}
         }
@@ -1083,13 +1194,18 @@ impl App {
     // --- mouse (mascote e objeto) -------------------------------------------
 
     unsafe fn on_press(&mut self, what: Grab) {
-        let origin = match (what, &self.toy) {
-            (Grab::Toy, Some(toy)) => (toy.prop.x, toy.prop.y),
-            (Grab::Toy, None) => return,
-            (Grab::Mascot, _) => (self.mascot.x, self.mascot.y),
+        let origin = match (what, &self.toy, &self.buddy) {
+            (Grab::Toy, Some(toy), _) => (toy.prop.x, toy.prop.y),
+            (Grab::Buddy, _, Some(b)) => (b.mascot.x, b.mascot.y),
+            (Grab::Mascot, ..) => (self.mascot.x, self.mascot.y),
+            _ => return,
         };
         let p = cursor();
-        SetCapture(if what == Grab::Toy { self.prop_hwnd } else { self.hwnd });
+        SetCapture(match what {
+            Grab::Toy => self.prop_hwnd,
+            Grab::Buddy => self.buddy_hwnd,
+            Grab::Mascot => self.hwnd,
+        });
         self.press = Some(Press {
             what,
             start: p,
@@ -1114,6 +1230,10 @@ impl App {
                 self.bubble.hide();
                 self.mascot.quiet();
             }
+            if let (Grab::Buddy, Some(b)) = (press.what, self.buddy.as_mut()) {
+                b.stop_visiting();
+                b.mascot.grab();
+            }
         }
         let now = Instant::now();
         let dt = now.duration_since(press.last.2).as_secs_f32();
@@ -1136,6 +1256,12 @@ impl App {
                 }
                 self.present_toy();
             }
+            Grab::Buddy => {
+                if let Some(b) = self.buddy.as_mut() {
+                    (b.mascot.x, b.mascot.y) = pos;
+                    b.present();
+                }
+            }
         }
         self.sync_timer();
     }
@@ -1149,6 +1275,15 @@ impl App {
         match (press.what, press.dragging) {
             (Grab::Mascot, true) => self.drop_mascot(vel.0, vel.1),
             (Grab::Toy, true) => self.drop_toy(vel.0, vel.1),
+            (Grab::Buddy, true) => self.drop_buddy(vel.0, vel.1),
+            (Grab::Buddy, false) => {
+                // Carinho no amigo também conta no afeto (ele não fala).
+                if let Some(b) = self.buddy.as_mut() {
+                    b.mascot.pet();
+                }
+                self.companion.on_pet(self.secs(), 100);
+                self.sync_timer();
+            }
             (Grab::Mascot, false) => {
                 self.mascot.pet();
                 let roll = self.rng.range(0, 100);
@@ -1179,9 +1314,18 @@ impl App {
             match (press.what, press.dragging) {
                 (Grab::Mascot, true) => self.drop_mascot(0.0, 0.0),
                 (Grab::Toy, true) => self.drop_toy(0.0, 0.0),
+                (Grab::Buddy, true) => self.drop_buddy(0.0, 0.0),
                 _ => {}
             }
         }
+    }
+
+    unsafe fn drop_buddy(&mut self, vx: f32, vy: f32) {
+        if let Some(b) = self.buddy.as_mut() {
+            b.mascot.release(vx, vy);
+        }
+        self.last_tick = Instant::now();
+        self.sync_timer();
     }
 
     unsafe fn drop_mascot(&mut self, vx: f32, vy: f32) {
@@ -1336,6 +1480,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             open_flyout(hwnd);
             return 0;
         }
+        WM_BUDDY_MOUSE if wp as u32 == WM_RBUTTONUP => {
+            open_flyout(hwnd);
+            return 0;
+        }
         // Clique (esquerdo ou direito) no ícone da bandeja abre o painel.
         WM_TRAY if matches!(lp as u32, WM_LBUTTONUP | WM_RBUTTONUP | WM_CONTEXTMENU) => {
             SetForegroundWindow(hwnd);
@@ -1376,6 +1524,17 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
         }
         WM_CAPTURECHANGED => app.on_capture_lost(),
+        WM_BUDDY_MOUSE => match wp as u32 {
+            WM_LBUTTONDOWN => app.on_press(Grab::Buddy),
+            WM_MOUSEMOVE => app.on_drag(),
+            WM_LBUTTONUP => {
+                if app.on_release() {
+                    ReleaseCapture();
+                }
+            }
+            WM_CAPTURECHANGED => app.on_capture_lost(),
+            _ => {}
+        },
         WM_PROP_MOUSE => match wp as u32 {
             WM_LBUTTONDOWN => app.on_press(Grab::Toy),
             WM_MOUSEMOVE => app.on_drag(),

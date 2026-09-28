@@ -30,7 +30,7 @@ use editor::{canvas_proc, palette_proc, redraw_editor, CELL, SWATCH, SWATCH_GAP}
 use crate::{
     chat::{self, WM_CHAT_REPLY},
     companion::{Reminder, ReminderKind},
-    config::{self, ChatSettings, Config, Size, MAX_REMINDERS, MAX_REMINDER_TEXT, PROVIDERS},
+    config::{self, ChatSettings, Config, Language, Size, Theme, MAX_REMINDERS, MAX_REMINDER_TEXT, PROVIDERS},
     mailbox,
     maker::{Drawing, Pose},
     memory,
@@ -98,6 +98,9 @@ const IDC_MEMORY: i32 = 130;
 const IDC_MEMORY_STATUS: i32 = 131;
 const IDC_MEMORY_OPEN: i32 = 132;
 const IDC_MEMORY_CLEAR: i32 = 133;
+const IDC_BUDDY: i32 = 135;
+const IDC_THEME: i32 = 136;
+const IDC_LANGUAGE: i32 = 137;
 const IDC_MASCOT: i32 = 101;
 const IDC_SIZE: i32 = 102;
 const IDC_SPEED: i32 = 103;
@@ -420,26 +423,33 @@ unsafe fn build(hwnd: HWND) {
     // --- Geral
     section!(0, "Seu mascote", 116);
     label!(0, "Mascote", x0, 146, 170);
-    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 144, cw, 300), IDC_MASCOT);
-    label!(0, "Tamanho", x0, 180, 170);
-    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 178, cw, 200), IDC_SIZE);
-    label!(0, "Velocidade ao andar", x0, 214, 170);
-    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 212, cw, 200), IDC_SPEED);
-    add(Some(0), "BUTTON", "Abrir pasta de mascotes", button, 0, (cx, 250, 200, 30), IDC_MODS);
-    section!(0, "Comportamento", 312);
-    label!(0, "Considerar ausente após", x0, 342, 170);
-    add(Some(0), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx, 340, 50, 24), IDC_AWAY);
-    label!(0, "min sem usar o PC", cx + 58, 342, 200);
-    label!(0, "Seu aniversário", x0, 376, 170);
-    let birthday = add(Some(0), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 374, 70, 24), IDC_BIRTHDAY);
+    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 144, 196, 300), IDC_MASCOT);
+    add(Some(0), "BUTTON", "Abrir pasta", button, 0, (cx + 204, 142, 96, 28), IDC_MODS);
+    label!(0, "Amigo na tela", x0, 180, 170);
+    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 178, cw, 300), IDC_BUDDY);
+    label!(0, "Tamanho", x0, 214, 170);
+    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 212, cw, 200), IDC_SIZE);
+    label!(0, "Velocidade ao andar", x0, 248, 170);
+    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 246, cw, 200), IDC_SPEED);
+    section!(0, "Comportamento", 304);
+    label!(0, "Considerar ausente após", x0, 334, 170);
+    add(Some(0), "EDIT", "", number, WS_EX_CLIENTEDGE, (cx, 332, 50, 24), IDC_AWAY);
+    label!(0, "min sem usar o PC", cx + 58, 334, 200);
+    label!(0, "Seu aniversário", x0, 368, 170);
+    let birthday = add(Some(0), "EDIT", "", edit, WS_EX_CLIENTEDGE, (cx, 366, 70, 24), IDC_BIRTHDAY);
     SendMessageW(birthday, EM_SETCUEBANNER, 1, w("dd/mm").as_ptr() as LPARAM);
     limit(birthday, 5);
-    label!(0, "o mascote comemora com você", cx + 78, 376, 230);
+    label!(0, "o mascote comemora com você", cx + 78, 368, 230);
     let check = BS_AUTOCHECKBOX as u32 | WS_TABSTOP;
-    add(Some(0), "BUTTON", "Iniciar junto com o Windows", check, 0, (x0, 412, 400, 22), IDC_AUTOSTART);
-    add(Some(0), "BUTTON", "Procurar versões novas (uma vez por dia, no GitHub)", check, 0, (x0, 440, 440, 22), IDC_UPDATES);
-    add(Some(0), "BUTTON", "Ficar quieto em reuniões (Teams, Zoom, Meet...)", check, 0, (x0, 468, 440, 22), IDC_MEETINGS);
-    hint!(0, "Para as reuniões ele olha só o nome do programa aberto, nunca o que está na tela.", 494, 20);
+    add(Some(0), "BUTTON", "Iniciar junto com o Windows", check, 0, (x0, 402, 400, 22), IDC_AUTOSTART);
+    add(Some(0), "BUTTON", "Procurar versões novas (uma vez por dia, no GitHub)", check, 0, (x0, 430, 440, 22), IDC_UPDATES);
+    add(Some(0), "BUTTON", "Ficar quieto em reuniões (Teams, Zoom, Webex...)", check, 0, (x0, 458, 440, 22), IDC_MEETINGS);
+    hint!(0, "Para as reuniões ele olha só o nome do programa aberto, nunca o que está na tela.", 484, 20);
+    section!(0, "Aparência", 532);
+    label!(0, "Tema", x0, 562, 170);
+    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 560, cw, 200), IDC_THEME);
+    label!(0, "Idioma", x0, 596, 170);
+    add(Some(0), "COMBOBOX", "", combo, 0, (cx, 594, cw, 200), IDC_LANGUAGE);
 
     // --- Lembretes
     section!(1, "Seus lembretes", 116);
@@ -648,6 +658,13 @@ unsafe fn populate(hwnd: HWND) {
     set_checked_box(hwnd, IDC_UPDATES, st.draft.updates);
     set_checked_box(hwnd, IDC_MEETINGS, st.draft.quiet_in_meetings);
     set_checked_box(hwnd, IDC_MEMORY, st.draft.memory);
+    let buddies: Vec<String> = std::iter::once("Nenhum".to_string()).chain(st.packs.iter().map(|p| p.name.clone())).collect();
+    let buddy = st.packs.iter().position(|p| p.id == st.draft.buddy).map_or(0, |i| i + 1);
+    fill_combo(hwnd, IDC_BUDDY, &buddies, buddy);
+    let themes = ["Igual ao Windows".to_string(), "Claro".into(), "Escuro".into()];
+    fill_combo(hwnd, IDC_THEME, &themes, Theme::ALL.iter().position(|t| *t == st.draft.theme).unwrap_or(0));
+    let languages = ["Igual ao Windows".to_string(), "Português".into(), "English".into()];
+    fill_combo(hwnd, IDC_LANGUAGE, &languages, Language::ALL.iter().position(|l| *l == st.draft.language).unwrap_or(0));
     show_memory_status(hwnd);
     if let Some((day, month)) = st.draft.birthday {
         set_text(hwnd, IDC_BIRTHDAY, &format!("{day:02}/{month:02}"));
@@ -1227,6 +1244,9 @@ unsafe fn on_ok(hwnd: HWND) {
     st.draft.updates = is_checked(hwnd, IDC_UPDATES);
     st.draft.quiet_in_meetings = is_checked(hwnd, IDC_MEETINGS);
     st.draft.memory = is_checked(hwnd, IDC_MEMORY);
+    st.draft.buddy = combo_index(hwnd, IDC_BUDDY).checked_sub(1).and_then(|i| st.packs.get(i)).map_or(String::new(), |p| p.id.clone());
+    st.draft.theme = Theme::ALL[combo_index(hwnd, IDC_THEME).min(Theme::ALL.len() - 1)];
+    st.draft.language = Language::ALL[combo_index(hwnd, IDC_LANGUAGE).min(Language::ALL.len() - 1)];
     let autostart = is_checked(hwnd, IDC_AUTOSTART);
     mailbox::post(st.owner, WM_SETTINGS_APPLY, Draft { config: st.draft.clone(), autostart });
     DestroyWindow(hwnd);
