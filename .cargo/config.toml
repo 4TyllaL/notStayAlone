@@ -1,0 +1,7 @@
+# Build MSVC — o das releases, feito pelo GitHub Actions.
+# - control-flow-guard: o Windows confere os saltos indiretos (Control Flow Guard);
+# - crt-static: o runtime do C vai dentro do .exe (continua um arquivo só, sem
+#   depender do vcruntime140.dll).
+# O linker ganha mais proteções no build.rs (/CETCOMPAT, /DEPENDENTLOADFLAG).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "control-flow-guard", "-C", "target-feature=+crt-static"]

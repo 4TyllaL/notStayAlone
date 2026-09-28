@@ -69,9 +69,17 @@ fn main() {
     resources.push((RT_VERSION, 1, version_info()));
     resources.push((RT_MANIFEST, 1, MANIFEST.as_bytes().to_vec()));
 
-    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join("resources.o");
+    let msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+    let out = PathBuf::from(env::var("OUT_DIR").unwrap()).join(if msvc { "resources.obj" } else { "resources.o" });
     fs::write(&out, coff(&resources)).unwrap();
     println!("cargo:rustc-link-arg-bins={}", out.display());
+    if msvc {
+        // Proteções que só o link.exe oferece:
+        // - /CETCOMPAT: pilha de sombra do hardware (CET) contra ataques de retorno;
+        // - /DEPENDENTLOADFLAG:0x800: até as DLLs importadas vêm só de System32.
+        println!("cargo:rustc-link-arg-bins=/CETCOMPAT");
+        println!("cargo:rustc-link-arg-bins=/DEPENDENTLOADFLAG:0x800");
+    }
 }
 
 // --- ícone ---------------------------------------------------------------
