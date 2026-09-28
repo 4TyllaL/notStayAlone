@@ -116,10 +116,13 @@ each is handled are in [`SECURITY.md`](SECURITY.md) (in Portuguese). Highlights:
 - No pointers in window messages: data between windows goes through an in-process mailbox,
   so forged messages from other programs are ignored.
 - Every input is bounded (mod files, AI replies, JSON depth, plugin output and run time).
-- New plugins start **off**; enabling one asks for confirmation (clearly labeled *full
-  access*, with the file's SHA-256) and pins that SHA-256. Every plugin and helper process
-  runs in a Windows Job Object: it can't start other programs, use the clipboard, touch
-  other windows or system settings, is capped at 512 MB and dies with the app.
+- New plugins start **off**; enabling one asks for confirmation (showing the file's
+  SHA-256 and whether it wants internet access) and pins that SHA-256. Every plugin runs in
+  its own **AppContainer sandbox**: it only reads its own folder, writes only to a data
+  folder of its own, can't reach your files, gets a minimal environment and has no network
+  unless its `plugin.ini` asks for `internet = sim` and you approve. Every plugin and helper
+  process also runs in a Windows Job Object: it can't start other programs, use the
+  clipboard, touch other windows or system settings, is capped at 512 MB and dies with the app.
 - Updates only come from this repository's releases, are checked against the SHA-256
   GitHub publishes **and** an Ed25519 signature (key kept offline, not on GitHub, so a
   compromised repository can't push an update), and never go back to an older version. Gallery files are checked
@@ -166,7 +169,8 @@ and only screenshots the app's own windows; `-Docs` refreshes the images in `doc
   links to the author's projects page and to this repository. Its **Security and privacy**
   card shows, in plain words, what protects you: the SHA-256 of the running `.exe` (compare it
   with GitHub's), how updates are checked, where the API key lives, which services the app
-  talks to, whether it starts with Windows and how many plugins can run programs.
+  talks to, whether it starts with Windows and how many plugins are on (sandboxed, and
+  how many with internet).
 - Command line (handy for Windows shortcuts; works while the app is running):
   `dontStayAlone.exe --bolinha` (ball), `--petisco` (treat), `--conversar` (chat),
   `--agua` (I drank water), `--resumo` (daily summary), `--esconder` (hide/show),

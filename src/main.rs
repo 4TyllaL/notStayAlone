@@ -2,6 +2,7 @@
 #![allow(non_snake_case)] // nome do binário: dontStayAlone.exe
 
 mod accessory;
+mod ask;
 mod ai;
 mod bubble;
 mod buddy;
@@ -24,6 +25,7 @@ mod phrases;
 mod plugins;
 mod prop;
 mod rng;
+mod sandbox;
 mod secret;
 mod settings;
 mod sha256;

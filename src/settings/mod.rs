@@ -28,6 +28,7 @@ mod editor;
 use editor::{canvas_proc, palette_proc, redraw_editor, CELL, SWATCH, SWATCH_GAP};
 
 use crate::{
+    ask,
     chat::{self, WM_CHAT_REPLY},
     companion::{Reminder, ReminderKind},
     config::{self, ChatSettings, Config, Language, Size, Theme, MAX_REMINDERS, MAX_REMINDER_TEXT, PROVIDERS},
@@ -841,10 +842,13 @@ unsafe fn fill_security(hwnd: HWND) {
 
     let external: Vec<&Plugin> = st.plugins.iter().filter(|p| !p.is_native()).collect();
     let on = external.iter().filter(|p| enabled(&p.id)).count();
+    let online = external.iter().filter(|p| enabled(&p.id) && p.internet).count();
     let plugins = if on == 0 {
         fill(tr("{} instalado(s), nenhum ligado"), &[&external.len()])
+    } else if online == 0 {
+        fill(tr("{} ligado(s), isolados (sandbox), sem internet"), &[&on])
     } else {
-        fill(tr("{} ligado(s): rodam programas com as suas permissões"), &[&on])
+        fill(tr("{} ligado(s), isolados (sandbox); {} com internet"), &[&on, &online])
     };
 
     let values = [program, sha, protections(), updates.into(), key.into(), net.join(" · "), autostart.into(), plugins];
@@ -1228,8 +1232,10 @@ O arquivo do plugin não está mais na pasta."),
         };
         let access = if p.is_native() {
             tr("Parte do próprio !StayAlone.")
+        } else if p.internet {
+            tr("Isolado (sandbox): não alcança seus arquivos. Pede internet.")
         } else {
-            tr("Acesso completo: roda com as permissões da sua conta.")
+            tr("Isolado (sandbox): não alcança seus arquivos nem a internet.")
         };
         format!("{}\n{} {file}{when}\n{access}{warning}", p.about, tr("Arquivo:"))
     });
@@ -1276,7 +1282,7 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
         return None;
     }
     if plugin.is_native() {
-        return Some(Enabled { id: plugin.id.clone(), fingerprint: String::new() });
+        return Some(Enabled { id: plugin.id.clone(), fingerprint: String::new(), internet: false });
     }
     // A impressão digital sai antes da pergunta: a que você vê é a que fica aprovada.
     let Some(fingerprint) = plugin.fingerprint() else {
@@ -1285,31 +1291,38 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
     };
     let file = plugin.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
     let limits = [
-        tr("O que o !StayAlone limita:"),
-        tr("• roda sem janela, por até 2 minutos; só o texto que ele escreve chega ao mascote"),
-        tr("• não pode abrir outros programas, usar a área de transferência nem mexer nas suas janelas"),
-        tr("• se o arquivo mudar, ele para até você aprovar de novo"),
+        tr("não lê nem muda seus arquivos: só lê a própria pasta e grava numa pasta de dados só dele"),
+        tr("não pode abrir outros programas, usar a área de transferência nem mexer nas suas janelas"),
+        tr("roda sem janela, por até 2 minutos; só o texto que ele escreve chega ao mascote"),
+        tr("se o arquivo mudar, ele para até você aprovar de novo"),
     ];
-    let question = [
-        fill(tr("Ligar o plugin \"{}\"?"), &[&plugin.name]),
-        plugin.about.clone(),
-        format!("⚠ {}", tr("Acesso completo (plugin nativo, não isolado)")),
-        fill(
-            tr("É um programa ({}) que roda com as permissões da sua conta: pode ler e mudar seus arquivos e usar a internet."),
-            &[&file],
-        ),
-        limits.join("\n"),
-        format!("SHA-256: {fingerprint}"),
-        tr("Ligue só plugins de quem você confia.").to_string(),
-    ]
-    .into_iter()
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join("\n\n");
-    if MessageBoxW(hwnd, w(&question).as_ptr(), w("!StayAlone").as_ptr(), MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2) != IDYES {
+    let network = if plugin.internet {
+        (tr("Pede acesso à internet: pode enviar o que recebe do app (e o que ele mesmo tem) para fora do PC."), true)
+    } else {
+        (tr("Sem internet."), false)
+    };
+    let body = [plugin.about.clone(), fill(tr("É um programa ({}) de fora do !StayAlone. Ele roda isolado."), &[&file])]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    // O hash em blocos de 8, fácil de comparar de olho.
+    let blocks: Vec<&str> = (0..fingerprint.len()).step_by(8).map(|i| &fingerprint[i..(i + 8).min(fingerprint.len())]).collect();
+    let note = format!("{}\nSHA-256: {}", tr("Ligue só plugins de quem você confia."), blocks.join(" "));
+    let question = ask::Question {
+        title: &fill(tr("Ligar o plugin \"{}\"?"), &[&plugin.name]),
+        body: &body,
+        chip: Some(network),
+        list_title: tr("O que o !StayAlone garante (sandbox do Windows, AppContainer):"),
+        items: &limits,
+        note: &note,
+        yes: tr("Ligar plugin"),
+        no: tr("Agora não"),
+    };
+    if !ask::ask(hwnd, &question) {
         return None;
     }
-    Some(Enabled { id: plugin.id.clone(), fingerprint })
+    Some(Enabled { id: plugin.id.clone(), fingerprint, internet: plugin.internet })
 }
 
 unsafe fn on_plugin_command(hwnd: HWND, id: i32) {

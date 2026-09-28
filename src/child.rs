@@ -9,16 +9,18 @@
 //!   não dá para forjar mensagens para o mascote);
 //! - limita a memória (`MAX_MEMORY`) e encerra tudo quando o app fecha.
 //!
-//! Não é uma sandbox: arquivos e rede continuam com as permissões da sua conta.
+//! Plugins de terceiros vão além: rodam também num AppContainer (`sandbox`), sem acesso
+//! aos seus arquivos nem à rede. As tarefas do próprio app (`--ia`, atualização, galeria)
+//! ficam só no job, porque precisam da rede e do Gerenciador de Credenciais.
 
 use std::{
     io::{Read, Write},
     mem::{size_of, zeroed},
     os::windows::{io::AsRawHandle, process::CommandExt},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, Command, Stdio},
     ptr::null,
     thread::JoinHandle,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use windows_sys::Win32::{
@@ -26,13 +28,17 @@ use windows_sys::Win32::{
     System::{
         Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32},
         JobObjects::*,
-        Threading::{OpenThread, ResumeThread, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME},
+        Threading::{
+            GetExitCodeProcess, OpenThread, ResumeThread, TerminateProcess, WaitForSingleObject, CREATE_SUSPENDED,
+            THREAD_SUSPEND_RESUME,
+        },
     },
 };
 
 use crate::{
     lang::{fill, tr},
     mailbox,
+    sandbox::{self, Sandboxed},
 };
 
 /// Resposta de um processo filho: o texto do stdout, ou a mensagem de erro.
@@ -77,8 +83,12 @@ impl Confined {
     }
 
     /// Põe o filho (criado suspenso) no job e o deixa rodar.
-    unsafe fn start(&self, child: &Child) -> bool {
-        AssignProcessToJobObject(self.0, child.as_raw_handle() as HANDLE) != 0 && resume(child.id())
+    unsafe fn start(&self, child: &Process) -> bool {
+        AssignProcessToJobObject(self.0, child.handle()) != 0
+            && match child {
+                Process::Plain(c) => resume(c.id()),
+                Process::Sandboxed(s) => ResumeThread(s.thread) != u32::MAX,
+            }
     }
 }
 
@@ -112,6 +122,85 @@ unsafe fn resume(pid: u32) -> bool {
     resumed
 }
 
+/// O que rodar: um programa comum ou um plugin no AppContainer.
+pub enum Program {
+    Plain(Command),
+    Sandboxed(sandbox::Spec),
+}
+
+impl From<Command> for Program {
+    fn from(command: Command) -> Program {
+        Program::Plain(command)
+    }
+}
+
+/// Um filho criado (suspenso), de um jeito ou de outro.
+enum Process {
+    Plain(Child),
+    Sandboxed(Sandboxed),
+}
+
+impl Process {
+    fn handle(&self) -> HANDLE {
+        match self {
+            Process::Plain(c) => c.as_raw_handle() as HANDLE,
+            Process::Sandboxed(s) => s.process,
+        }
+    }
+
+    /// Espera terminar e devolve o código de saída; passado o `timeout`, encerra (`None`).
+    fn wait(&self, timeout: Duration) -> Option<u32> {
+        unsafe {
+            if WaitForSingleObject(self.handle(), timeout.as_millis() as u32) != 0 {
+                self.kill();
+                return None;
+            }
+            let mut code = 0;
+            (GetExitCodeProcess(self.handle(), &mut code) != 0).then_some(code)
+        }
+    }
+
+    fn kill(&self) {
+        unsafe {
+            TerminateProcess(self.handle(), 1);
+            WaitForSingleObject(self.handle(), 5000);
+        }
+    }
+}
+
+type Pipes = (Option<Box<dyn Write>>, Option<Box<dyn Read + Send>>, Option<Box<dyn Read + Send>>);
+
+/// Cria o filho suspenso e devolve as pontas dos pipes do lado do app.
+fn create(program: Program) -> Result<(Process, Pipes), String> {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    match program {
+        Program::Plain(mut command) => {
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED)
+                .spawn()
+                .map_err(|e| fill(tr("não consegui abrir o programa ({})"), &[&e]))?;
+            let pipes: Pipes = (
+                child.stdin.take().map(|p| Box::new(p) as _),
+                child.stdout.take().map(|p| Box::new(p) as _),
+                child.stderr.take().map(|p| Box::new(p) as _),
+            );
+            Ok((Process::Plain(child), pipes))
+        }
+        Program::Sandboxed(spec) => {
+            let mut s = sandbox::spawn(&spec).map_err(|e| format!("{} ({e})", tr("não consegui preparar o isolamento do programa")))?;
+            let pipes: Pipes = (
+                s.stdin.take().map(|p| Box::new(p) as _),
+                s.stdout.take().map(|p| Box::new(p) as _),
+                s.stderr.take().map(|p| Box::new(p) as _),
+            );
+            Ok((Process::Sandboxed(s), pipes))
+        }
+    }
+}
+
 /// O próprio .exe num modo interno (ex.: `--ia`).
 pub fn this_app(args: &[&str]) -> Command {
     let mut command = Command::new(std::env::current_exe().unwrap_or_default());
@@ -133,35 +222,27 @@ pub fn spawn<T: Send + 'static>(
     });
 }
 
-/// Roda `command`, manda `input` no stdin e devolve o stdout (até `max_output` bytes).
-pub fn run(mut command: Command, input: &str, max_output: u64) -> Reply {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+/// Roda `program`, manda `input` no stdin e devolve o stdout (até `max_output` bytes).
+pub fn run(program: impl Into<Program>, input: &str, max_output: u64) -> Reply {
     let job = unsafe { Confined::new() }.ok_or(tr("não consegui preparar o isolamento do programa"))?;
-    let mut child = command
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED)
-        .spawn()
-        .map_err(|e| fill(tr("não consegui abrir o programa ({})"), &[&e]))?;
+    let (child, (stdin, stdout, stderr)) = create(program.into())?;
     // Sem o job, não roda: encerra ainda suspenso.
     if !unsafe { job.start(&child) } {
-        let _ = child.kill();
-        let _ = child.wait();
+        child.kill();
         return Err(tr("não consegui preparar o isolamento do programa").into());
     }
     // Lê as saídas em paralelo e com limite: o filho nunca trava escrevendo
     // e não consegue encher a memória do app.
-    let stdout = drain(child.stdout.take(), max_output);
-    let stderr = drain(child.stderr.take(), max_output);
-    if let Some(mut stdin) = child.stdin.take() {
+    let stdout = drain(stdout, max_output);
+    let stderr = drain(stderr, max_output);
+    if let Some(mut stdin) = stdin {
         let _ = stdin.write_all(input.as_bytes()); // se falhar, o filho reclama no stderr
-    }
-    let status = wait(&mut child, TIMEOUT);
+    } // fechar o stdin avisa o filho de que a entrada acabou
+    let status = child.wait(TIMEOUT);
     let (out, err) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
     match status {
         None => Err(tr("demorou demais e foi encerrado.").into()),
-        Some(s) if s.success() => Ok(String::from_utf8_lossy(&out).trim().trim_start_matches('\u{feff}').to_string()),
+        Some(0) => Ok(String::from_utf8_lossy(&out).trim().trim_start_matches('\u{feff}').to_string()),
         Some(_) => {
             let err = String::from_utf8_lossy(&err).trim().to_string();
             Err(if err.is_empty() { tr("o programa falhou").into() } else { err })
@@ -169,7 +250,7 @@ pub fn run(mut command: Command, input: &str, max_output: u64) -> Reply {
     }
 }
 
-fn drain<R: Read + Send + 'static>(pipe: Option<R>, max: u64) -> JoinHandle<Vec<u8>> {
+fn drain(pipe: Option<Box<dyn Read + Send>>, max: u64) -> JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         if let Some(pipe) = pipe {
@@ -177,22 +258,6 @@ fn drain<R: Read + Send + 'static>(pipe: Option<R>, max: u64) -> JoinHandle<Vec<
         }
         bytes
     })
-}
-
-/// Espera o filho terminar; passado o `timeout`, encerra o processo (`None`).
-fn wait(child: &mut Child, timeout: Duration) -> Option<ExitStatus> {
-    let start = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Some(status),
-            Ok(None) if start.elapsed() < timeout => std::thread::sleep(Duration::from_millis(100)),
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
 }
 
 #[cfg(test)]

@@ -6,29 +6,32 @@
 //!   kind  = avisos             (ou: conversa)
 //!   run   = curiosidades.ps1   (um .exe ou .ps1 dentro da própria pasta)
 //!   every = 90                 (avisos: minutos entre uma vez e outra)
+//!   internet = sim             (opcional: pede acesso à internet)
 //!
 //! - **conversa**: responde quando você conversa com o mascote (o nativo usa a IA).
 //! - **avisos**: roda de tempos em tempos; o que escrever no stdout, o mascote fala.
 //!
 //! Segurança: plugin novo chega desligado. Ao ligar, você confirma e o app guarda a
-//! impressão digital (SHA-256) do programa; se o arquivo mudar, ele não roda até
-//! você confirmar de novo. Cada execução tem tempo e tamanho de saída limitados.
+//! impressão digital (SHA-256) do programa e se ele pode usar a internet; se o arquivo
+//! mudar (ou ele passar a pedir internet), ele não roda até você confirmar de novo.
+//! Cada execução roda num AppContainer (`sandbox`): só lê a própria pasta, tem uma
+//! pasta de dados só dele e não alcança seus arquivos nem a rede sem permissão.
 
 use std::{
+    ffi::OsString,
     fs,
     io::Read,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use windows_sys::Win32::{Foundation::HWND, System::SystemInformation::GetSystemDirectoryW};
 
 use crate::{
     ai::{self, json::quote},
-    child::{self, Reply},
+    child::{self, Program, Reply},
     config::read_file,
     lang::{self, tr},
-    sha256,
+    sandbox, sha256,
     win::clean_line,
 };
 
@@ -85,13 +88,17 @@ pub struct Plugin {
     pub program: PathBuf,
     /// Minutos entre execuções (avisos).
     pub every: u32,
+    /// O `plugin.ini` pede acesso à internet.
+    pub internet: bool,
 }
 
-/// Plugin ligado: o id e a impressão digital aprovada (vazia no nativo).
+/// Plugin ligado: o id, a impressão digital aprovada (vazia no nativo) e se você
+/// liberou a internet para ele.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Enabled {
     pub id: String,
     pub fingerprint: String,
+    pub internet: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -114,6 +121,7 @@ impl Plugin {
             kind: Kind::Chat,
             program: exe,
             every: 0,
+            internet: true,
         }
     }
 
@@ -129,9 +137,14 @@ impl Plugin {
         (bytes.len() as u64 <= MAX_PROGRAM).then(|| sha256::hex(&bytes))
     }
 
-    /// A impressão digital que este plugin precisa ter para rodar (`None` = nativo, não confere).
-    pub fn approved(&self, enabled: &[Enabled]) -> Option<String> {
-        enabled.iter().find(|e| e.id == self.id && !self.is_native()).map(|e| e.fingerprint.clone())
+    /// O que você aprovou para este plugin (`None` = nativo ou ainda não ligado).
+    pub fn approved(&self, enabled: &[Enabled]) -> Option<Enabled> {
+        enabled.iter().find(|e| e.id == self.id && !self.is_native()).cloned()
+    }
+
+    /// O arquivo é o aprovado e não pede mais do que foi aprovado.
+    fn matches(&self, approval: &Enabled) -> bool {
+        (!self.internet || approval.internet) && self.fingerprint().as_deref() == Some(approval.fingerprint.as_str())
     }
 
     pub fn status(&self, enabled: &[Enabled]) -> Status {
@@ -141,27 +154,29 @@ impl Plugin {
         match enabled.iter().find(|e| e.id == self.id) {
             None => Status::Off,
             Some(_) if self.is_native() => Status::On,
-            Some(e) if self.fingerprint().as_deref() == Some(e.fingerprint.as_str()) => Status::On,
+            Some(e) if self.matches(e) => Status::On,
             Some(_) => Status::Changed,
         }
     }
 
-    /// Como rodar: o .exe direto, ou o .ps1 pelo PowerShell do Windows (System32).
-    fn command(&self) -> Command {
-        let script = self.program.extension().is_some_and(|e| e.eq_ignore_ascii_case("ps1"));
-        let mut command = if script {
-            let mut c = Command::new(system_dir().join(r"WindowsPowerShell\v1.0\powershell.exe"));
-            c.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"]).arg(&self.program);
-            c
-        } else if self.is_native() {
-            child::this_app(&[ai::ARG])
-        } else {
-            Command::new(&self.program)
-        };
-        if let Some(folder) = self.program.parent() {
-            command.current_dir(folder);
+    /// Como rodar: o nativo é o próprio app (fora do sandbox: precisa da rede e do
+    /// Gerenciador de Credenciais); os outros, no AppContainer, o .exe direto ou o .ps1
+    /// pelo PowerShell do Windows (System32). Internet só se `internet` (já aprovada).
+    fn command(&self, internet: bool) -> Program {
+        if self.is_native() {
+            return child::this_app(&[ai::ARG]).into();
         }
-        command
+        let script = self.program.extension().is_some_and(|e| e.eq_ignore_ascii_case("ps1"));
+        let (program, args) = if script {
+            let flags = ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"];
+            let mut args: Vec<OsString> = flags.iter().map(OsString::from).collect();
+            args.push(self.program.clone().into());
+            (system_dir().join(r"WindowsPowerShell\v1.0\powershell.exe"), args)
+        } else {
+            (self.program.clone(), Vec::new())
+        };
+        let folder = self.program.parent().map(Path::to_path_buf).unwrap_or_default();
+        Program::Sandboxed(sandbox::Spec { id: self.id.clone(), program, args, folder, internet })
     }
 }
 
@@ -203,6 +218,7 @@ fn parse(id: &str, folder: &Path, text: &str) -> Result<Plugin, String> {
         return Err(format!("nome de pasta inválido: {id}"));
     }
     let (mut name, mut about, mut kind, mut run, mut every) = (String::new(), String::new(), None, String::new(), 60);
+    let mut internet = false;
     for line in text.lines().map(str::trim).filter(|l| !l.starts_with('#')) {
         let Some((key, value)) = line.split_once('=') else { continue };
         let value = value.trim();
@@ -218,6 +234,7 @@ fn parse(id: &str, folder: &Path, text: &str) -> Result<Plugin, String> {
             }
             "run" => run = value.to_string(),
             "every" => every = value.parse::<u32>().unwrap_or(every).clamp(MIN_EVERY, MAX_EVERY),
+            "internet" => internet = matches!(value.to_lowercase().as_str(), "sim" | "yes" | "true" | "1"),
             _ => {}
         }
     }
@@ -228,7 +245,8 @@ fn parse(id: &str, folder: &Path, text: &str) -> Result<Plugin, String> {
     if !file_ok {
         return Err("run precisa ser um .exe ou .ps1 dentro da pasta do plugin".into());
     }
-    Ok(Plugin { id: id.into(), name: if name.is_empty() { id.into() } else { name }, about, kind, program: folder.join(run), every })
+    let name = if name.is_empty() { id.into() } else { name };
+    Ok(Plugin { id: id.into(), name, about, kind, program: folder.join(run), every, internet })
 }
 
 /// Cria a pasta de plugins (com o LEIA-ME e o exemplo, desligado) e devolve o caminho.
@@ -261,23 +279,20 @@ pub fn notice_input(mascot: &str, female: bool, hour: u32) -> String {
 }
 
 /// Roda o plugin numa thread e entrega `wrap(resposta)` à janela `to` com `msg` (pelo `mailbox`).
-/// `approved` = impressão digital exigida (conferida antes de rodar).
+/// `approved` = o que você aprovou (conferido antes de rodar); sem aprovação (o botão
+/// Testar de um plugin desligado), roda no sandbox sem internet.
 pub fn request<T: Send + 'static>(
     to: HWND,
     msg: u32,
     plugin: &Plugin,
-    approved: Option<String>,
+    approved: Option<Enabled>,
     input: String,
     wrap: impl FnOnce(Reply) -> T + Send + 'static,
 ) {
     let plugin = plugin.clone();
-    let job = move || {
-        let intact = approved.is_none_or(|expected| plugin.fingerprint().as_deref() == Some(expected.as_str()));
-        if intact {
-            child::run(plugin.command(), &input, MAX_OUTPUT)
-        } else {
-            Err(CHANGED.into())
-        }
+    let job = move || match approved {
+        Some(approval) if !plugin.matches(&approval) => Err(CHANGED.into()),
+        approval => child::run(plugin.command(approval.is_some_and(|a| a.internet)), &input, MAX_OUTPUT),
     };
     child::spawn(to, msg, job, wrap);
 }
@@ -293,7 +308,8 @@ mod tests {
     #[test]
     fn reads_a_manifest() {
         let p = parse("clima", &folder(), "name = Clima\nkind = avisos\nrun = clima.exe\nevery = 1\n").unwrap();
-        assert_eq!((p.name.as_str(), p.kind, p.every), ("Clima", Kind::Notice, MIN_EVERY));
+        assert_eq!((p.name.as_str(), p.kind, p.every, p.internet), ("Clima", Kind::Notice, MIN_EVERY, false));
+        assert!(parse("clima", &folder(), "kind = avisos\nrun = clima.exe\ninternet = sim\n").unwrap().internet);
         assert_eq!(p.program, folder().join("clima.exe"));
     }
 
@@ -321,12 +337,12 @@ mod tests {
         assert!(p.program.ends_with(files[1].0));
     }
 
-    /// O exemplo roda de verdade, como o app roda: PowerShell dentro do job, JSON no stdin.
+    /// O exemplo roda de verdade, como o app roda: PowerShell no sandbox e no job, JSON no stdin.
     #[test]
     fn example_plugin_runs_confined() {
         let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join(r"assets\plugins\curiosidades");
         let p = parse(EXAMPLE.0, &folder, EXAMPLE.1[0].1).unwrap();
-        let said = child::run(p.command(), &notice_input("Calcifer", false, 15), MAX_OUTPUT).unwrap();
+        let said = child::run(p.command(false), &notice_input("Calcifer", false, 15), MAX_OUTPUT).unwrap();
         assert!(!said.is_empty() && said.len() < MAX_NOTICE * 4, "{said}");
     }
 
@@ -337,9 +353,14 @@ mod tests {
         let program = dir.join("p.exe");
         fs::write(&program, "versão 1").unwrap();
         let plugin = Plugin { program: program.clone(), ..parse("teste", &dir, "kind = avisos\nrun = p.exe").unwrap() };
-        let enabled = vec![Enabled { id: "teste".into(), fingerprint: plugin.fingerprint().unwrap() }];
+        let enabled = vec![Enabled { id: "teste".into(), fingerprint: plugin.fingerprint().unwrap(), internet: false }];
         assert_eq!(plugin.status(&enabled), Status::On);
         assert_eq!(plugin.status(&[]), Status::Off);
+        // Passar a pedir internet depois de aprovado também exige aprovar de novo.
+        let online = Plugin { internet: true, ..plugin.clone() };
+        assert_eq!(online.status(&enabled), Status::Changed);
+        let enabled_online = vec![Enabled { internet: true, ..enabled[0].clone() }];
+        assert_eq!(online.status(&enabled_online), Status::On);
         fs::write(&program, "versão 2").unwrap();
         assert_eq!(plugin.status(&enabled), Status::Changed);
         let _ = fs::remove_dir_all(dir);

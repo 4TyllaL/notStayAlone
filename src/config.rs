@@ -239,12 +239,14 @@ impl Config {
                 "theme" => config.theme = Theme::ALL.into_iter().find(|t| t.key() == value).unwrap_or(Theme::Auto),
                 "language" => config.language = Language::ALL.into_iter().find(|l| l.key() == value).unwrap_or(Language::Auto),
                 "plugins" => plugins_saved = true,
-                // plugin=id|impressão digital (o nativo não tem)
+                // plugin=id|impressão digital[|internet] (o nativo não tem)
                 "plugin" => {
-                    let (id, fingerprint) = value.split_once('|').unwrap_or((value, ""));
+                    let mut parts = value.split('|');
+                    let (id, fingerprint) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+                    let internet = parts.next() == Some("internet");
                     let fingerprint_ok = fingerprint.len() == 64 && fingerprint.bytes().all(|b| b.is_ascii_hexdigit());
                     if (id == NATIVE_ID || fingerprint_ok) && !config.plugins.iter().any(|e| e.id == id) {
-                        config.plugins.push(Enabled { id: id.to_string(), fingerprint: fingerprint.to_lowercase() });
+                        config.plugins.push(Enabled { id: id.to_string(), fingerprint: fingerprint.to_lowercase(), internet });
                     }
                 }
                 "away_minutes" => config.companion.away_minutes = number.unwrap_or(5).clamp(1, 120),
@@ -284,7 +286,7 @@ impl Config {
             }
         }
         if !plugins_saved {
-            config.plugins = vec![Enabled { id: NATIVE_ID.into(), fingerprint: String::new() }];
+            config.plugins = vec![Enabled { id: NATIVE_ID.into(), fingerprint: String::new(), internet: false }];
         }
         config
     }
@@ -355,9 +357,13 @@ impl Config {
             on_off(self.chat_hotkey),
             on_off(self.accessories)
         );
-        text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256\nplugins=\n";
+        text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256[|internet]\nplugins=\n";
         for e in &self.plugins {
-            text += &if e.fingerprint.is_empty() { format!("plugin={}\n", e.id) } else { format!("plugin={}|{}\n", e.id, e.fingerprint) };
+            text += &match (e.fingerprint.is_empty(), e.internet) {
+                (true, _) => format!("plugin={}\n", e.id),
+                (false, false) => format!("plugin={}|{}\n", e.id, e.fingerprint),
+                (false, true) => format!("plugin={}|{}|internet\n", e.id, e.fingerprint),
+            };
         }
         text
     }
@@ -558,9 +564,12 @@ mod tests {
 
     #[test]
     fn plugins_round_trip_and_default_to_native_chat() {
-        assert_eq!(Config::parse("").plugins, vec![Enabled { id: NATIVE_ID.into(), fingerprint: String::new() }]);
+        assert_eq!(Config::parse("").plugins, vec![Enabled { id: NATIVE_ID.into(), fingerprint: String::new(), internet: false }]);
         let mut c = Config::parse("");
-        c.plugins = vec![Enabled { id: "clima".into(), fingerprint: "ab".repeat(32) }];
+        c.plugins = vec![
+            Enabled { id: "clima".into(), fingerprint: "ab".repeat(32), internet: false },
+            Enabled { id: "tempo".into(), fingerprint: "cd".repeat(32), internet: true },
+        ];
         assert_eq!(Config::parse(&c.to_text()).plugins, c.plugins);
         c.plugins.clear(); // tudo desligado continua desligado
         assert!(Config::parse(&c.to_text()).plugins.is_empty());

@@ -54,7 +54,8 @@ Credenciais do Windows.
 | **FTP_ITC.1 / FCS_TLSC** — canal confiável | T.REDE, T.CHAVE | Só HTTPS com TLS 1.2+; `http://` apenas para `localhost`/`127.0.0.1`/`[::1]`; redirecionamentos desligados (a chave não segue para outro host); certificados validados pelo WinHTTP. Conferido no app **e** no plugin. |
 | **FPT_TST / FPT_FLS** — falha segura | T.SERVIDOR | Resposta HTTP até 64 KB (uma conversa tem 1–3 KB); pedido até 64 KB; JSON com até 64 níveis (não estoura a pilha); `max_tokens` com teto de 4096; saída de qualquer plugin até 16 KB e processo encerrado após 120 s. |
 | **FPT (proteção do TSF)** | T.DLL | `winhttp.dll` carregada só de System32 (`LOAD_LIBRARY_SEARCH_SYSTEM32`); as demais DLLs importadas são "KnownDLLs". Binários com ASLR (alta entropia) e DEP; manifesto `asInvoker`. Plugin personalizado só `.exe` com caminho absoluto (nada de `.bat`/PATH). |
-| **FDP_ACF.1 / FPT_TST.1** — controle de acesso e integridade dos plugins | T.PLUGIN | Plugin novo chega desligado; ligar exige sua confirmação (padrão "Não") e grava o SHA-256 do programa. Antes de **cada** execução o hash é conferido; se mudou, não roda e o mascote avisa. No `config.ini`, plugin de terceiros sem hash válido é ignorado. O programa precisa ser `.exe`/`.ps1` **dentro** da pasta do plugin (sem caminhos nem `..`); o PowerShell usado é o de System32. A pergunta rotula o plugin como **acesso completo (não isolado)**, lista o que o app limita e mostra o SHA-256 que será aprovado (calculado antes da pergunta). |
+| **FDP_ACF.1 / FPT_TST.1** — controle de acesso e integridade dos plugins | T.PLUGIN | Plugin novo chega desligado; ligar exige sua confirmação (padrão "Não") e grava o SHA-256 do programa. Antes de **cada** execução o hash é conferido; se mudou, não roda e o mascote avisa. No `config.ini`, plugin de terceiros sem hash válido é ignorado. O programa precisa ser `.exe`/`.ps1` **dentro** da pasta do plugin (sem caminhos nem `..`); o PowerShell usado é o de System32. A pergunta diz que o plugin roda isolado, se ele pede internet (`internet = sim` no `plugin.ini`; aprovada junto com o hash, gravada como `plugin=id|hash|internet`; passar a pedir depois pausa o plugin como "mudou") e mostra o SHA-256 que será aprovado (calculado antes da pergunta). |
+| **FDP_ACC.2 / FDP_IFC.2** — sandbox dos plugins | T.PLUGIN, T.PRIVACIDADE | Cada plugin de terceiros roda num AppContainer próprio (`StayAlone.Plugin.<id>`, `src/sandbox.rs`), criado suspenso e só solto dentro do *Job Object*: lê e executa só a própria pasta (ACE de leitura para o SID do container), grava só na pasta de dados do container (`STAYALONE_DADOS`), sem capacidades além de `internetClient` quando aprovada, ambiente mínimo (sem variáveis da sua conta, como chaves de API) e herda só os três pipes (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`). Testado em `cargo test`: não lê um arquivo seu, não lista a área de trabalho, não abre conexão; lê a própria pasta e grava a de dados; com a permissão, conecta (`-- --ignored`). |
 | **FPT_FLS / FRU_RSA.1** — contenção dos processos filhos | T.PLUGIN, T.RECURSOS | Todo filho (plugins, `--ia`, atualização, galeria) nasce suspenso e só roda depois de entrar num *Job Object* (`src/child.rs`); se o job não puder ser criado ou aplicado, o filho é encerrado sem rodar. O job: 1 processo só (não abre outros programas), 512 MB de memória, morre com o app (`KILL_ON_JOB_CLOSE`), sem caixa de erro do Windows, e restrições de interface — sem área de transferência, sem usar janelas de fora do job (não forja mensagens para o mascote), sem mudar configurações do sistema/tela, trocar de área de trabalho ou desligar o PC. Testado em `cargo test` (processo bloqueado, stdin funcionando, plugin de exemplo). |
 | **FPT_TUD_EXT / FCS_COP** — atualização confiável | T.ATUALIZACAO | Só de `https://github.com/4TyllaL/notStayAlone/releases/download/` (endereço conferido duas vezes, no app e no processo que baixa); o SHA-256 vem do campo `digest` da API do GitHub e o arquivo baixado precisa bater, começar com `MZ` e ter até 16 MB; além disso, `dontStayAlone.exe.sig` (ao lado do `.exe` na release) precisa ser uma assinatura **Ed25519** válida da frase `!StayAlone <versão> sha256:<hash>` pela chave pública embutida no app (`RELEASE_KEY`); a chave privada fica só no PC de quem publica (`examples/assinar.rs`), nunca no GitHub. Assinar a versão junto com o hash impede reaproveitar um `.exe` antigo assinado numa tag nova; nunca volta para versão mais antiga nem aceita pré-release. Com tudo conferido, o app mostra o que verificou (origem, SHA-256, assinatura, versão) e o que mudou (itens das notas da release, sem Markdown, no máximo 6 × 140 caracteres) e **só instala se você confirmar**; se não, apaga o arquivo baixado. O `.exe` antigo é renomeado (`.old.exe`) antes da troca e apagado na próxima abertura. |
 | **FDP_ITC.2** — importação da galeria | T.GALERIA | Só de `raw.githubusercontent.com/4TyllaL/notStayAlone/main/gallery/`; cada arquivo tem SHA-256 no `index.json` e todos são conferidos **antes** de gravar qualquer um; ids `[a-z0-9_-]`. **Só mascotes:** os únicos arquivos aceitos são `mascot.txt`, `phrases.txt` e `phrases_en.txt` (texto lido pelos parsers com limites de T.MOD) — nada executável; um item com qualquer outro arquivo é descartado inteiro. Plugins ficam fora da galeria de propósito. No repositório, `tools/gallery.py` recusa outros arquivos e o `cargo test` confere índice, hashes e se cada mascote abre. |
@@ -66,8 +67,8 @@ Credenciais do Windows.
 estado real destas proteções (versão e commit de origem, SHA-256 do `.exe` em uso,
 proteções lidas do cabeçalho PE do próprio processo — DEP, ASLR, ASLR de alta entropia, CFG —,
 atualização assinada e com
-confirmação, onde está a chave, serviços de rede ligados, início com o Windows, plugins que
-rodam programas), inclusive o que ainda falta (sem Authenticode).
+confirmação, onde está a chave, serviços de rede ligados, início com o Windows, plugins
+ligados, isolados, e quantos têm internet), inclusive o que ainda falta (sem Authenticode).
 
 ## Riscos residuais (o que ainda não está coberto)
 
@@ -94,11 +95,14 @@ rodam programas), inclusive o que ainda falta (sem Authenticode).
   se perder: sem ela, as versões instaladas não conseguem mais se atualizar sozinhas e é
   preciso baixar a nova à mão). O primeiro download continua sem cadeia de confiança
   independente até haver Authenticode.
-- **Plugins sem sandbox de arquivos e rede.** O *Job Object* impede abrir outros
-  programas e usar a interface de outras janelas, mas um plugin ligado ainda lê e grava
-  os seus arquivos e usa a rede com as permissões do usuário: a aprovação garante que é
-  *o arquivo que você aprovou*, não que ele seja bom. Por isso a pergunta o chama de
-  "acesso completo". Ligue só plugins de quem você confia. Scripts `.ps1` rodam com `-ExecutionPolicy Bypass`
+- **Plugins no sandbox, mas não inofensivos.** Desde a 1.2.6 cada plugin de terceiros roda
+  num AppContainer próprio (`src/sandbox.rs`) além do *Job Object*: só lê a própria pasta,
+  grava só na pasta de dados dele, não alcança seus arquivos, recebe um ambiente mínimo e
+  fica sem rede, a não ser que declare `internet = sim` e você aprove. Com internet, ele
+  pode mandar para fora o que o app entrega a ele (a conversa, no caso de um plugin de
+  conversa). Kernel e drivers seguem sendo superfície de ataque, como para qualquer app da
+  Loja. O plugin de IA nativo é o próprio `.exe` e fica fora do AppContainer (precisa do
+  Gerenciador de Credenciais e da rede). Scripts `.ps1` rodam com `-ExecutionPolicy Bypass`
   (a aprovação por hash faz o papel da política de execução).
 - **Conteúdo da IA.** A resposta é texto limpo e cortado, mas não passa por filtro de
   conteúdo; o provedor escolhido é quem modera.

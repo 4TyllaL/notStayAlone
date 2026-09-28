@@ -259,7 +259,7 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     Start-Sleep -Milliseconds 500
 }
 
-# Ligar um plugin de terceiros: a pergunta diz "Acesso completo" e mostra o SHA-256 do
+# Ligar um plugin de terceiros: a pergunta diz que ele roda isolado e mostra o SHA-256 do
 # arquivo; responder "Não" deixa o plugin desligado. Lê o texto da pergunta (sem foto).
 function Check-PluginApproval {
     Run-Exe "--configurar"
@@ -278,14 +278,17 @@ function Check-PluginApproval {
     $until = (Get-Date).AddSeconds(5)
     while ((Get-Date) -lt $until -and $dlg -eq [IntPtr]::Zero) {
         Start-Sleep -Milliseconds 200
-        $dlg = [Smoke]::FindTitled("#32770", "!StayAlone")
+        $dlg = [Smoke]::FindTitled("StayAloneAsk", "!StayAlone")
     }
     Check ($dlg -ne [IntPtr]::Zero) "ligar um plugin pede confirmação"
     if ($dlg -ne [IntPtr]::Zero) {
-        $text = [Smoke]::Text([Smoke]::GetDlgItem($dlg, 0xFFFF))
+        # A pergunta do app: título, texto, destaque e nota ficam em controles com id.
+        $text = (10, 11, 12, 13, 14 | ForEach-Object { [Smoke]::Text([Smoke]::GetDlgItem($dlg, $_)) }) -join "`n"
+        $text = $text -replace '(?<=[0-9a-f]{8}) (?=[0-9a-f]{8})', ''
         $hash = (Get-FileHash "$script:data\StayAlone\plugins\curiosidades\curiosidades.ps1").Hash.ToLower()
-        Check ($text -match "Acesso completo") "a pergunta avisa que o acesso é completo"
+        Check ($text -match "roda isolado" -and $text -match "Sem internet") "a pergunta diz que o plugin roda isolado e sem internet"
         Check ($text -match "SHA-256: $hash") "a pergunta mostra o SHA-256 do arquivo"
+        Save ([Smoke]::Print($dlg)) "plugin-approval"
         [Smoke]::PostMessageW($dlg, 0x0111, [IntPtr]7, [IntPtr]::Zero) | Out-Null # Não
         Start-Sleep -Milliseconds 500
     }

@@ -116,8 +116,10 @@ O app manda um JSON no stdin e lê a resposta no stdout — o protocolo completo
 
 **Segurança:** plugin novo chega desligado; para ligar, você confirma e o app guarda a
 impressão digital (SHA-256) do programa. Se o arquivo mudar, o plugin é pausado até você
-ligar de novo. A pergunta diz com todas as letras que é um plugin de **acesso completo**
-(roda com as permissões da sua conta) e mostra o SHA-256. O programa precisa estar dentro
+ligar de novo. Cada plugin roda num **sandbox do Windows (AppContainer)**: só lê a própria
+pasta, grava só numa pasta de dados dele, não alcança seus arquivos, recebe variáveis de
+ambiente mínimas e fica **sem internet**, a não ser que o `plugin.ini` peça
+(`internet = sim`) e você aprove. A pergunta mostra isso e o SHA-256. O programa precisa estar dentro
 da pasta do plugin, cada execução tem no máximo 2 minutos, 16 KB de resposta e 512 MB de
 memória, e o aviso falado tem até 200 caracteres. Cada execução roda num *Job Object* do
 Windows: sem abrir outros programas, sem área de transferência, sem mexer nas suas janelas

@@ -6,15 +6,22 @@ um arquivo plugin.ini vira um plugin na aba Configurações → Plugins, onde vo
 e desliga cada um.
 
 SEGURANÇA
-  - Todo plugin novo chega DESLIGADO. Ligue só plugins de quem você confia: eles
-    rodam no seu PC com as suas permissões.
+  - Todo plugin novo chega DESLIGADO. Ligue só plugins de quem você confia.
   - Ao ligar, o app guarda a "impressão digital" (SHA-256) do programa. Se o arquivo
-    mudar depois, o plugin é pausado até você ligar de novo.
+    mudar depois (ou o plugin.ini passar a pedir internet), o plugin é pausado até
+    você ligar de novo.
   - Cada execução tem no máximo 2 minutos, 16 KB de resposta e 512 MB de memória.
-  - O plugin roda isolado num "job" do Windows: não pode abrir outros programas
-    (Start-Process, cmd, etc. falham), nem usar a área de transferência, mexer em
-    janelas que não são dele ou em configurações do sistema. Arquivos e internet
-    continuam com as suas permissões: por isso ele aparece como "acesso completo".
+  - O plugin roda num SANDBOX do Windows (AppContainer, o mesmo dos apps da Loja):
+      * só LÊ a própria pasta; seus documentos, área de trabalho e o resto da sua
+        conta ficam fora de alcance;
+      * tem uma pasta de dados só dele, na variável STAYALONE_DADOS (TEMP, APPDATA
+        e LOCALAPPDATA também apontam para lá);
+      * sem internet, a não ser que o plugin.ini tenha "internet = sim" e você
+        aprove ao ligar;
+      * não pode abrir outros programas (Start-Process, cmd, etc. falham), usar a
+        área de transferência, mexer em janelas que não são dele ou em
+        configurações do sistema;
+      * recebe só variáveis de ambiente básicas (nenhuma chave de API sua).
 
 O plugin.ini
   name  = Nome que aparece na lista
@@ -23,6 +30,7 @@ O plugin.ini
           conversa    (responde quando você conversa com o mascote)
   run   = programa.exe  ou  script.ps1   (dentro desta mesma pasta)
   every = 60          (só para avisos: minutos entre uma vez e outra, de 5 a 1440)
+  internet = sim      (opcional: pede acesso à internet; você aprova ao ligar)
 
 Como o plugin conversa com o app
   O app escreve um JSON no stdin do plugin e lê a resposta no stdout (UTF-8).
@@ -40,5 +48,7 @@ Scripts PowerShell (.ps1)
   Salve o arquivo como UTF-8 com BOM e comece o script com:
     [Console]::InputEncoding  = [Text.Encoding]::UTF8
     [Console]::OutputEncoding = [Text.Encoding]::UTF8
+  No sandbox o PowerShell não sabe a pasta atual: para abrir arquivos do plugin,
+  use o caminho completo, por exemplo  Join-Path $PSScriptRoot "dados.txt".
 
 Veja a pasta "curiosidades": um exemplo completo, pronto para ligar.
