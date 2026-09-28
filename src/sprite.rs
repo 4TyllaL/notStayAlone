@@ -1,8 +1,11 @@
-//! Sprites em ASCII: cada frame é uma grade 16×16 de caracteres, onde `.` é
-//! transparente e as demais letras são cores definidas na paleta.
+//! Sprites em ASCII: cada frame é uma grade 16×16 (ou 32×32, com `size 32`) de
+//! caracteres, onde `.` é transparente e as demais letras são cores da paleta.
 
+/// Tamanho padrão (e o do criador de mascotes).
 pub const SPRITE: usize = 16;
 pub const PIXELS: usize = SPRITE * SPRITE;
+/// Sprites maiores, para mais detalhe (aparecem do mesmo tamanho na tela).
+pub const SPRITE_HD: usize = 32;
 
 pub const PROPS: &str = include_str!("../assets/props.txt");
 
@@ -23,16 +26,25 @@ pub struct Sheet {
     pub about: Option<String>,
     /// "a" para mascotes femininas (falas no feminino); "o" por padrão.
     pub article: Option<String>,
+    /// Lado da grade: 16 ou 32.
+    pub size: usize,
     /// Cor BGRA (alpha pré-multiplicado) indexada pelo caractere ASCII; 0 = transparente.
     colors: [u32; 128],
     names: Vec<String>,
-    frames: Vec<[u8; PIXELS]>,
+    frames: Vec<Vec<u8>>,
 }
 
 impl Sheet {
     pub fn parse(src: &str) -> Result<Sheet, String> {
-        let mut sheet =
-            Sheet { name: None, about: None, article: None, colors: [0; 128], names: Vec::new(), frames: Vec::new() };
+        let mut sheet = Sheet {
+            name: None,
+            about: None,
+            article: None,
+            size: SPRITE,
+            colors: [0; 128],
+            names: Vec::new(),
+            frames: Vec::new(),
+        };
         let mut lines = src
             .lines()
             .enumerate()
@@ -54,6 +66,13 @@ impl Sheet {
             }
             let mut words = line.split_whitespace();
             match (words.next(), words.next(), words.next(), words.next()) {
+                (Some("size"), Some(size), None, None) => {
+                    sheet.size = match size {
+                        "16" => SPRITE,
+                        "32" if sheet.frames.is_empty() => SPRITE_HD,
+                        _ => return Err(format!("linha {n}: size precisa ser 16 ou 32, antes dos frames")),
+                    };
+                }
                 (Some("color"), Some(key), Some(hex), None) => {
                     let key = match key.as_bytes() {
                         [b] if b.is_ascii_graphic() && *b != b'.' && *b != b'#' => *b,
@@ -73,13 +92,14 @@ impl Sheet {
                     if sheet.frames.len() >= MAX_FRAMES {
                         return Err(format!("linha {n}: mais de {MAX_FRAMES} frames"));
                     }
-                    let mut px = [0u8; PIXELS];
-                    for row in 0..SPRITE {
+                    let size = sheet.size;
+                    let mut px = vec![0u8; size * size];
+                    for row in 0..size {
                         let (rn, text) =
                             lines.next().ok_or(format!("frame '{name}': faltam linhas"))?;
-                        if text.len() != SPRITE {
+                        if text.len() != size {
                             return Err(format!(
-                                "linha {rn}: o frame '{name}' precisa de {SPRITE} colunas, tem {}",
+                                "linha {rn}: o frame '{name}' precisa de {size} colunas, tem {}",
                                 text.chars().count()
                             ));
                         }
@@ -90,7 +110,7 @@ impl Sheet {
                             if b >= 128 || sheet.colors[b as usize] == 0 {
                                 return Err(format!("linha {rn}: cor '{}' não definida", b as char));
                             }
-                            px[row * SPRITE + col] = b;
+                            px[row * size + col] = b;
                         }
                     }
                     sheet.names.push(name.to_string());
@@ -107,8 +127,8 @@ impl Sheet {
     }
 
     /// Os caracteres de um frame (0 = transparente), para editar no criador de mascotes.
-    pub fn frame_chars(&self, name: &str) -> Option<&[u8; PIXELS]> {
-        self.find(name).map(|i| &self.frames[i])
+    pub fn frame_chars(&self, name: &str) -> Option<&[u8]> {
+        self.find(name).map(|i| self.frames[i].as_slice())
     }
 
     /// Cor RGB (0xRRGGBB) de um caractere da paleta.
@@ -116,14 +136,14 @@ impl Sheet {
         self.colors.get(ch as usize).map_or(0, |c| c & 0xFF_FFFF)
     }
 
-    /// Desenha o frame ampliado `scale` vezes em `out` (largura SPRITE * scale).
+    /// Desenha o frame ampliado `scale` vezes em `out` (largura `size * scale`).
     pub fn draw(&self, index: usize, flip: bool, scale: usize, out: &mut [u32]) {
-        let px = &self.frames[index];
-        let width = SPRITE * scale;
-        for y in 0..SPRITE {
-            for x in 0..SPRITE {
-                let sx = if flip { SPRITE - 1 - x } else { x };
-                let color = self.colors[px[y * SPRITE + sx] as usize];
+        let (px, size) = (&self.frames[index], self.size);
+        let width = size * scale;
+        for y in 0..size {
+            for x in 0..size {
+                let sx = if flip { size - 1 - x } else { x };
+                let color = self.colors[px[y * size + sx] as usize];
                 for dy in 0..scale {
                     let start = (y * scale + dy) * width + x * scale;
                     out[start..start + scale].fill(color);
@@ -132,13 +152,13 @@ impl Sheet {
         }
     }
 
-    /// Redimensiona um frame para `size`×`size` (usado no ícone da bandeja).
+    /// Redimensiona um frame para `size`×`size` (ícone da bandeja, petisco de sprite grande).
     pub fn draw_fit(&self, index: usize, size: usize) -> Vec<u32> {
-        let px = &self.frames[index];
+        let (px, grid) = (&self.frames[index], self.size);
         (0..size * size)
             .map(|i| {
-                let (x, y) = (i % size * SPRITE / size, i / size * SPRITE / size);
-                self.colors[px[y * SPRITE + x] as usize]
+                let (x, y) = (i % size * grid / size, i / size * grid / size);
+                self.colors[px[y * grid + x] as usize]
             })
             .collect()
     }
@@ -228,6 +248,24 @@ impl Art {
         }
     }
 
+    /// Lado da grade (16 ou 32).
+    pub fn size(&self) -> usize {
+        self.sheet.size
+    }
+
+    /// Escala de desenho que ocupa na tela o mesmo que um sprite 16×16 com `scale`.
+    pub fn scale_for(&self, scale: i32) -> i32 {
+        let size = self.size() as i32;
+        ((scale * SPRITE as i32 + size / 2) / size).max(1)
+    }
+
+    /// Um frame em tamanho real (1 pixel por pixel), para prévias.
+    pub fn pixels(&self, frame: Frame) -> Vec<u32> {
+        let mut out = vec![0; self.size() * self.size()];
+        self.draw(frame, false, 1, &mut out);
+        out
+    }
+
     pub fn index(&self, frame: Frame) -> usize {
         self.map[frame as usize]
     }
@@ -291,6 +329,31 @@ mod tests {
     fn reports_wrong_width() {
         let src = EMBEDDED[0].1.replacen("..kkkkkkkkkkkk..", "..kkkkkkkkkkkk.", 1);
         assert!(Sheet::parse(&src).err().unwrap().contains("colunas"));
+    }
+
+    #[test]
+    fn big_sprites_are_read_and_scaled_to_the_same_screen_size() {
+        let row = ".".repeat(32);
+        let body: String = (0..32).map(|_| format!("{row}
+")).collect();
+        let mut src = String::from("size 32
+color k 000000
+");
+        for name in ["idle", "blink", "walk1", "walk2", "yawn", "sleep1", "sleep2", "held1", "held2", "fall", "land", "happy1", "happy2"] {
+            src += &format!("frame {name}
+{body}");
+        }
+        let art = Art::parse(&src).unwrap();
+        assert_eq!(art.size(), 32);
+        assert_eq!(art.pixels(Frame::Idle).len(), 32 * 32);
+        assert_eq!((art.scale_for(2), art.scale_for(4), art.scale_for(6)), (1, 2, 3));
+        assert!(Sheet::parse(&src.replacen("frame idle
+", "frame idle
+.
+", 1)).is_err());
+        assert!(Sheet::parse("frame x
+................
+size 32").is_err());
     }
 
     #[test]

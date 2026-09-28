@@ -32,7 +32,7 @@ use crate::{
     companion::{Reminder, ReminderKind},
     config::{self, ChatSettings, Config, Size, MAX_REMINDERS, MAX_REMINDER_TEXT, PROVIDERS},
     mailbox,
-    maker::Drawing,
+    maker::{Drawing, Pose},
     memory,
     pack::{self, PackInfo},
     child::Reply,
@@ -131,6 +131,7 @@ const IDC_SAVE_MASCOT: i32 = 148;
 const IDC_AI_TEXT: i32 = 149;
 const IDC_AI_GO: i32 = 150;
 const IDC_AI_STATUS: i32 = 151;
+const IDC_POSE: i32 = 152;
 const IDC_PLUGINS: i32 = 160;
 const IDC_PLUGIN_INFO: i32 = 161;
 const IDC_PLUGIN_TEST: i32 = 162;
@@ -191,6 +192,8 @@ struct State {
     color: u8,
     /// Pintando com o mouse apertado (valor sendo aplicado).
     painting: Option<u8>,
+    /// Pose sendo desenhada no editor.
+    pose: Pose,
     busy: Option<Busy>,
     plugins: Vec<Plugin>,
     /// (linha, ligado?) marcado na lista de plugins, esperando ser tratado.
@@ -288,6 +291,7 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
         drawing: Drawing::blank(),
         color: 1,
         painting: None,
+        pose: Pose::Idle,
         busy: None,
         plugins: plugins::list(),
         plugin_toggle: None,
@@ -525,21 +529,23 @@ unsafe fn build(hwnd: HWND) {
     add(Some(3), "BUTTON", "Limpar", button, 0, (xr, 338, half, 30), IDC_CLEAR);
     add(Some(3), "BUTTON", "Espelhar", button, 0, (xr + half + 8, 338, half, 30), IDC_MIRROR);
     add(Some(3), "BUTTON", "Salvar e usar", button, 0, (xr, 376, rw, 34), IDC_SAVE_MASCOT);
+    label!(3, "Pose que você está desenhando", xr, 418, rw);
+    add(Some(3), "COMBOBOX", "", combo, 0, (xr, 440, rw, 200), IDC_POSE);
     add(
         Some(3),
         "STATIC",
-        "Desenhe só a pose parada: piscar, dormir, andar e pular são criados sozinhos.",
+        "Poses em branco são criadas sozinhas a partir da pose parada (piscar, dormir, andar, pular).",
         0,
         0,
-        (xr, 420, rw, 60),
+        (xr, 474, rw, 60),
         IDC_HINT,
     );
-    section!(3, "Ou peça para a IA desenhar", 540);
-    let ai = add(Some(3), "EDIT", "", edit, WS_EX_CLIENTEDGE, (x0, 566, 372, 26), IDC_AI_TEXT);
+    section!(3, "Ou peça para a IA desenhar", 552);
+    let ai = add(Some(3), "EDIT", "", edit, WS_EX_CLIENTEDGE, (x0, 578, 372, 26), IDC_AI_TEXT);
     SendMessageW(ai, EM_SETCUEBANNER, 1, w("Ex.: um polvo roxo de chapéu de marinheiro").as_ptr() as LPARAM);
     limit(ai, 300);
-    add(Some(3), "BUTTON", "Criar com IA", button, 0, (x0 + 380, 564, CONTENT - 2 * x0 - 380, 30), IDC_AI_GO);
-    add(Some(3), "STATIC", "", 0, 0, (x0, 598, CONTENT - 2 * x0, 20), IDC_AI_STATUS);
+    add(Some(3), "BUTTON", "Criar com IA", button, 0, (x0 + 380, 576, CONTENT - 2 * x0 - 380, 30), IDC_AI_GO);
+    add(Some(3), "STATIC", "", 0, 0, (x0, 610, CONTENT - 2 * x0, 20), IDC_AI_STATUS);
 
     // --- Plugins
     section!(4, "Plugins instalados", 116);
@@ -654,6 +660,8 @@ unsafe fn populate(hwnd: HWND) {
     show_chat_fields(hwnd);
 
     fill_combo(hwnd, IDC_PRONOUN, &["Ele (o mascote)".into(), "Ela (a mascote)".into()], 0);
+    let poses: Vec<String> = Pose::ALL.iter().map(|p| p.label().to_string()).collect();
+    fill_combo(hwnd, IDC_POSE, &poses, 0);
     fill_plugins(hwnd, None);
 }
 
@@ -1033,6 +1041,8 @@ unsafe fn load_drawing(hwnd: HWND, drawing: Drawing, keep_name: bool) {
     SendMessageW(item(hwnd, IDC_PRONOUN), CB_SETCURSEL, drawing.female as usize, 0);
     st.drawing = drawing;
     st.color = 1;
+    st.pose = Pose::Idle;
+    SendMessageW(item(hwnd, IDC_POSE), CB_SETCURSEL, 0, 0);
     redraw_editor(hwnd);
 }
 
@@ -1054,12 +1064,16 @@ unsafe fn on_maker_command(hwnd: HWND, id: i32, code: u32) {
             // O nome fica para você escolher: salvar com o nome de um embutido o substituiria.
             load_drawing(hwnd, drawing, false);
         }
+        IDC_POSE if code == CBN_SELCHANGE => {
+            st.pose = Pose::ALL[combo_index(hwnd, IDC_POSE).min(Pose::ALL.len() - 1)];
+            redraw_editor(hwnd);
+        }
         IDC_CLEAR => {
-            st.drawing.px = [0; PIXELS];
+            st.drawing.clear(st.pose);
             redraw_editor(hwnd);
         }
         IDC_MIRROR => {
-            st.drawing.mirror();
+            st.drawing.mirror(st.pose);
             redraw_editor(hwnd);
         }
         IDC_SAVE_MASCOT => save_mascot(hwnd),
@@ -1254,8 +1268,7 @@ unsafe fn paint(hwnd: HWND) {
     let box_size = s(84);
     let bx = (side - box_size) / 2;
     c.card((bx, s(24), box_size, box_size), s(20), argb(theme::CARD), argb(theme::BORDER));
-    let px = (s(60) / 16).max(1);
-    c.sprite(bx + (box_size - 16 * px) / 2, s(24) + (box_size - 16 * px) / 2, px, &st.preview.1);
+    c.sprite_fit(bx + (box_size - s(64)) / 2, s(24) + (box_size - s(64)) / 2, s(64), &st.preview.1);
     c.text(st.bold, &st.preview.0, RECT { left: 0, top: s(116), right: side, bottom: s(140) }, theme::TEXT, center);
     c.text(st.small, "Configurações", RECT { left: 0, top: s(138), right: side, bottom: s(156) }, theme::MUTED, center);
     for (i, &(_, glyph, label)) in PAGES.iter().enumerate() {
@@ -1305,9 +1318,7 @@ unsafe fn draw_button(hwnd: HWND, di: &DRAWITEMSTRUCT) {
 /// Mascote mostrado na barra lateral: (nome, sprite parado).
 fn preview_of(info: Option<&PackInfo>) -> (String, Vec<u32>) {
     let Some(pack) = info.and_then(|i| pack::load(i).ok()) else { return (String::new(), vec![0; PIXELS]) };
-    let mut pixels = vec![0; PIXELS];
-    pack.art.draw(Frame::Idle, false, 1, &mut pixels);
-    (pack.art.name.clone(), pixels)
+    (pack.art.name.clone(), pack.art.pixels(Frame::Idle))
 }
 
 unsafe fn refresh_preview(hwnd: HWND) {
@@ -1381,7 +1392,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 IDC_KEYENV if code == EN_CHANGE => show_key_status(hwnd),
                 IDC_KEY_REMOVE | IDC_GETKEY | IDC_TEST => on_chat_command(hwnd, id),
                 IDC_MEMORY_OPEN | IDC_MEMORY_CLEAR => on_memory_command(hwnd, id),
-                IDC_TEMPLATE | IDC_CLEAR | IDC_MIRROR | IDC_SAVE_MASCOT | IDC_AI_GO => on_maker_command(hwnd, id, code),
+                IDC_TEMPLATE | IDC_POSE | IDC_CLEAR | IDC_MIRROR | IDC_SAVE_MASCOT | IDC_AI_GO => on_maker_command(hwnd, id, code),
                 IDC_PLUGIN_TEST | IDC_PLUGIN_FOLDER | IDC_PLUGIN_RELOAD => on_plugin_command(hwnd, id),
                 _ => {}
             }

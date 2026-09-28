@@ -297,6 +297,8 @@ struct App {
     rng: Rng,
     bounds: Bounds,
     scale: i32,
+    /// Escala do desenho do mascote (`scale` para 16×16, a metade para 32×32).
+    draw_scale: i32,
     dpi: u32,
     canvas: Canvas,
     tray: Tray,
@@ -350,7 +352,11 @@ impl App {
         let scale = pixel_scale(config.size);
         let seed = SystemTime::now().duration_since(UNIX_EPOCH).map_or(1, |d| d.as_nanos() as u64);
         let mut mascot = Mascot::new(scale as f32, config.speed as f32, seed);
+        // Sprites 32×32 desenham com meia escala: ocupam o mesmo espaço, com mais detalhe.
+        let draw_scale = art.scale_for(scale);
+        let body = art.size() as i32 * draw_scale;
         let bounds = bounds_at(POINT { x: 0, y: 0 }); // monitor principal
+        mascot.resize(scale as f32, body as f32, &bounds);
         mascot.drop_in(&bounds);
 
         let (day, hour, _) = clock();
@@ -378,7 +384,8 @@ impl App {
             bounds,
             scale,
             dpi: GetDpiForSystem(),
-            canvas: Canvas::new(SPRITE as i32 * scale, SPRITE as i32 * scale),
+            canvas: Canvas::new(body, body),
+            draw_scale,
             rendered: None,
             shown_at: (i32::MIN, i32::MIN),
             user_hidden: false,
@@ -431,8 +438,7 @@ impl App {
         let frame = (self.mascot.frame(), self.mascot.facing_left);
         let pos = (self.mascot.x.round() as i32, self.mascot.y.round() as i32);
         if self.rendered != Some(frame) {
-            let scale = self.scale as usize;
-            self.art.draw(frame.0, frame.1, scale, self.canvas.pixels());
+            self.art.draw(frame.0, frame.1, self.draw_scale as usize, self.canvas.pixels());
             self.canvas.present(self.hwnd, (pos != self.shown_at).then_some(pos));
             self.rendered = Some(frame);
         } else if pos != self.shown_at {
@@ -452,7 +458,13 @@ impl App {
         let moved = pos != toy.shown_at;
         if toy.rendered != Some(sprite) {
             let sheet = if sprite.1 { &self.art.sheet } else { &self.props };
-            sheet.draw(sprite.0, false, self.scale as usize, toy.canvas.pixels());
+            if sheet.size == SPRITE {
+                sheet.draw(sprite.0, false, self.scale as usize, toy.canvas.pixels());
+            } else {
+                // Petisco de um mascote 32×32: reduzido ao tamanho do objeto.
+                let pixels = sheet.draw_fit(sprite.0, toy.canvas.width as usize);
+                toy.canvas.pixels().copy_from_slice(&pixels);
+            }
             toy.rendered = Some(sprite);
             toy.canvas.present(self.prop_hwnd, moved.then_some(pos));
         } else if moved {
@@ -667,12 +679,20 @@ impl App {
         self.config.size = size;
         self.config.save();
         self.scale = pixel_scale(size);
-        let px = SPRITE as i32 * self.scale;
-        self.canvas = Canvas::new(px, px);
-        self.mascot.resize(self.scale as f32, &self.bounds);
-        self.rendered = None;
+        self.fit_body();
         self.present();
         self.sync_timer();
+    }
+
+    /// Ajusta a janela e o corpo do mascote ao tamanho e à arte atuais.
+    unsafe fn fit_body(&mut self) {
+        self.draw_scale = self.art.scale_for(self.scale);
+        let body = self.art.size() as i32 * self.draw_scale;
+        if self.canvas.width != body {
+            self.canvas = Canvas::new(body, body);
+        }
+        self.mascot.resize(self.scale as f32, body as f32, &self.bounds);
+        self.rendered = None;
     }
 
     unsafe fn set_mascot(&mut self, info: &PackInfo) {
@@ -686,7 +706,7 @@ impl App {
         self.config.mascot = id;
         self.config.save();
         self.tray.set_art(&self.art, &self.tip());
-        self.rendered = None;
+        self.fit_body(); // o mascote novo pode ser 32×32
         if let Some(toy) = self.toy.as_mut() {
             toy.rendered = None;
         }
@@ -1207,11 +1227,9 @@ fn today() -> String {
     format!("{:02}/{:02}, {}", day % 100, day / 100 % 100, WEEKDAYS[weekday as usize % 7])
 }
 
-/// Sprite parado de um mascote (16×16, 0xAARRGGBB), para o painel.
+/// Sprite parado de um mascote (0xAARRGGBB), para o painel.
 fn idle_pixels(art: &Art) -> Vec<u32> {
-    let mut pixels = vec![0; PIXELS];
-    art.draw(Frame::Idle, false, 1, &mut pixels);
-    pixels
+    art.pixels(Frame::Idle)
 }
 
 /// Abre o painel do mascote (clique direito nele ou no ícone da bandeja).

@@ -365,9 +365,8 @@ impl Flyout {
             }
             Part::Header => {
                 c.round_rect(x, y, s(48), s(48), s(10), argb(theme::ACCENT_SOFT));
-                let scale = (s(48) / 16 - 1).max(1);
-                let off = (s(48) - 16 * scale) / 2;
-                c.sprite(x + off, y + off, scale, &self.model.pixels);
+                let off = (s(48) - s(32)) / 2;
+                c.sprite_fit(x + off, y + off, s(32), &self.model.pixels);
                 let tx = x + s(60);
                 c.text(title, &self.model.name, rect(tx, y + s(2), w - s(60), s(24)), theme::TEXT, left);
                 // Um coração por vez: a fonte de ícones não tem o caractere de espaço.
@@ -412,10 +411,8 @@ impl Flyout {
                 } else {
                     c.round_rect(x, y, w, h, s(10), argb(bg));
                 }
-                let scale = (s(32) / 16).max(1);
-                let off = (w - 16 * scale) / 2;
                 if let Some(choice) = self.model.mascots.get(*i) {
-                    c.sprite(x + off, y + off, scale, &choice.pixels);
+                    c.sprite_fit(x + (w - s(32)) / 2, y + (h - s(32)) / 2, s(32), &choice.pixels);
                 }
             }
             Part::Glyph(glyph) => {

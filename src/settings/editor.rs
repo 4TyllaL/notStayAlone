@@ -18,7 +18,7 @@ use windows_sys::Win32::{
 
 use super::{colorref, item, rgb, scale, state, State, IDC_CANVAS, IDC_PALETTE};
 use crate::{
-    maker::MAX_COLORS,
+    maker::{Pose, MAX_COLORS},
     sprite::{PIXELS, SPRITE},
 };
 
@@ -48,6 +48,15 @@ fn mouse(lp: LPARAM) -> (i32, i32) {
     ((lp & 0xFFFF) as i16 as i32, ((lp >> 16) & 0xFFFF) as i16 as i32)
 }
 
+/// `a` com `amount` de opacidade sobre `b` (cores 0xRRGGBB).
+fn mix(a: u32, b: u32, amount: f32) -> u32 {
+    let channel = |shift: u32| {
+        let (x, y) = (((a >> shift) & 0xFF) as f32, ((b >> shift) & 0xFF) as f32);
+        ((x * amount + y * (1.0 - amount)).round() as u32) << shift
+    };
+    channel(16) | channel(8) | channel(0)
+}
+
 pub(super) unsafe extern "system" fn canvas_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let Some((st, _)) = parent_state(hwnd) else { return DefWindowProcW(hwnd, msg, wp, lp) };
     let cell = scale(CELL, st.dpi);
@@ -58,8 +67,9 @@ pub(super) unsafe extern "system" fn canvas_proc(hwnd: HWND, msg: u32, wp: WPARA
             return;
         };
         let i = cy as usize * SPRITE + cx as usize;
-        if st.drawing.px[i] != value {
-            st.drawing.px[i] = value;
+        let grid = st.drawing.grid_mut(st.pose);
+        if grid[i] != value {
+            grid[i] = value;
             let r = RECT { left: cx * cell, top: cy * cell, right: (cx + 1) * cell, bottom: (cy + 1) * cell };
             InvalidateRect(hwnd, &r, 0);
         }
@@ -69,14 +79,20 @@ pub(super) unsafe extern "system" fn canvas_proc(hwnd: HWND, msg: u32, wp: WPARA
         WM_PAINT => {
             let mut ps: PAINTSTRUCT = zeroed();
             let dc = BeginPaint(hwnd, &mut ps);
+            let empty = [0u8; PIXELS];
+            let grid = st.drawing.grid(st.pose).unwrap_or(&empty);
+            // Numa pose extra, a pose parada aparece clarinha por baixo (papel vegetal).
+            let guide = (st.pose != Pose::Idle).then_some(&st.drawing.px);
             for i in 0..PIXELS {
                 let (x, y) = ((i % SPRITE) as i32, (i / SPRITE) as i32);
                 let r = RECT { left: x * cell, top: y * cell, right: (x + 1) * cell, bottom: (y + 1) * cell };
-                let p = st.drawing.px[i] as usize;
-                let color = match st.drawing.palette.get(p) {
-                    Some(&c) if p != 0 => colorref(c),
+                let p = grid[i] as usize;
+                let checker = if (x + y) % 2 == 0 { 0xf4f4f4 } else { 0xe7e7e7 };
+                let color = match (st.drawing.palette.get(p), guide.map(|g| g[i] as usize)) {
+                    (Some(&c), _) if p != 0 => colorref(c),
+                    (_, Some(g)) if g != 0 => colorref(mix(st.drawing.palette.get(g).copied().unwrap_or(0), checker, 0.25)),
                     // Transparente: xadrez claro.
-                    _ => if (x + y) % 2 == 0 { rgb(0xf4, 0xf4, 0xf4) } else { rgb(0xe7, 0xe7, 0xe7) },
+                    _ => colorref(checker),
                 };
                 fill(dc, r, color);
                 // Linhas finas da grade.

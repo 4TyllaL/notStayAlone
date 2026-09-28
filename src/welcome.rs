@@ -147,10 +147,7 @@ pub unsafe fn open(owner: HWND, current: &str, icon: HICON) {
         .into_iter()
         .take(TILES)
         .map(|info| {
-            let mut pixels = vec![0; PIXELS];
-            if let Ok(p) = pack::load(&info) {
-                p.art.draw(Frame::Idle, false, 1, &mut pixels);
-            }
+            let pixels = pack::load(&info).map_or_else(|_| vec![0; PIXELS], |p| p.art.pixels(Frame::Idle));
             (info, pixels)
         })
         .collect();
@@ -274,8 +271,7 @@ unsafe fn paint(hwnd: HWND) {
                 } else {
                     c.round_rect(r.left, r.top, size, size, s(16), argb(theme::SOFT));
                 }
-                let px = (s(64) / 16).max(1);
-                c.sprite(r.left + (size - 16 * px) / 2, r.top + (size - 16 * px) / 2, px, pixels);
+                c.sprite_fit(r.left + (size - s(64)) / 2, r.top + (size - s(64)) / 2, s(64), pixels);
                 let name_rect = RECT { left: r.left - s(10), top: r.bottom + s(8), right: r.right + s(10), bottom: r.bottom + s(30) };
                 let font = if i == st.chosen { st.bold } else { st.font };
                 c.text(font, &info.name, name_rect, if i == st.chosen { theme::ACCENT } else { theme::TEXT }, center);

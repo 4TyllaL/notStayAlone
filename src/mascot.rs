@@ -308,10 +308,11 @@ impl Mascot {
         self.talking = false;
     }
 
-    pub fn resize(&mut self, scale: f32, b: &Bounds) {
+    /// Nova escala (movimento) e tamanho do corpo em pixels (o desenho pode ser 16 ou 32).
+    pub fn resize(&mut self, scale: f32, body: f32, b: &Bounds) {
         let bottom = self.y + self.size;
         self.scale = scale;
-        self.size = SPRITE as f32 * scale;
+        self.size = body;
         self.y = bottom - self.size;
         self.settle(b);
     }

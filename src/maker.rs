@@ -26,6 +26,31 @@ const HEART: u8 = 255;
 
 type Grid = [u8; PIXELS];
 
+/// Poses que dá para desenhar. Só a parada é obrigatória: as outras, se ficarem
+/// em branco, são criadas a partir dela.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Pose {
+    Idle,
+    Sleep,
+    Eat,
+    Happy,
+    Walk,
+}
+
+impl Pose {
+    pub const ALL: [Pose; 5] = [Pose::Idle, Pose::Sleep, Pose::Eat, Pose::Happy, Pose::Walk];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Pose::Idle => "Parado (a base)",
+            Pose::Sleep => "Dormindo",
+            Pose::Eat => "Comendo",
+            Pose::Happy => "Feliz",
+            Pose::Walk => "Andando",
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Drawing {
     pub name: String,
@@ -33,7 +58,10 @@ pub struct Drawing {
     pub female: bool,
     /// Cores 0xRRGGBB; a posição 0 é o transparente (valor ignorado).
     pub palette: Vec<u32>,
+    /// A pose parada (a base de tudo).
     pub px: Grid,
+    /// Poses extras desenhadas (dormindo, comendo, feliz, andando); `None` = automática.
+    pub extra: [Option<Grid>; 4],
     /// Cor dedicada aos olhos, se houver.
     pub eyes: Option<u8>,
 }
@@ -46,13 +74,43 @@ impl Drawing {
             female: false,
             palette: BLANK_PALETTE.to_vec(),
             px: [0; PIXELS],
+            extra: [None; 4],
             eyes: Some(BLANK_EYES),
         }
     }
 
-    /// Começa a partir do frame `idle` de um mascote existente.
+    /// A grade de uma pose (`None` = pose extra ainda não desenhada).
+    pub fn grid(&self, pose: Pose) -> Option<&Grid> {
+        match pose {
+            Pose::Idle => Some(&self.px),
+            other => self.extra[other as usize - 1].as_ref(),
+        }
+    }
+
+    /// A grade de uma pose para editar (uma pose extra começa vazia).
+    pub fn grid_mut(&mut self, pose: Pose) -> &mut Grid {
+        match pose {
+            Pose::Idle => &mut self.px,
+            other => self.extra[other as usize - 1].get_or_insert([0; PIXELS]),
+        }
+    }
+
+    /// Apaga uma pose (a extra volta a ser automática).
+    pub fn clear(&mut self, pose: Pose) {
+        match pose {
+            Pose::Idle => self.px = [0; PIXELS],
+            other => self.extra[other as usize - 1] = None,
+        }
+    }
+
+    /// A pose extra desenhada, se tiver algo nela.
+    fn drawn(&self, pose: Pose) -> Option<Grid> {
+        self.grid(pose).filter(|g| g.iter().any(|&p| p != 0)).map(settle)
+    }
+
+    /// Começa a partir do frame `idle` de um mascote existente (um 32×32 é reduzido).
     pub fn from_sheet(sheet: &Sheet, female: bool) -> Option<Drawing> {
-        let chars = sheet.frame_chars("idle")?;
+        let chars = shrink(sheet.frame_chars("idle")?, sheet.size);
         let mut palette = vec![0u32];
         let mut map = [0u8; 128];
         let mut px = [0u8; PIXELS];
@@ -76,6 +134,7 @@ impl Drawing {
             female,
             palette,
             px,
+            extra: [None; 4],
             eyes: (map[b'e' as usize] != 0).then_some(map[b'e' as usize]),
         })
     }
@@ -133,8 +192,8 @@ impl Drawing {
         self.px.iter().all(|&p| p == 0)
     }
 
-    pub fn mirror(&mut self) {
-        for row in self.px.chunks_mut(SPRITE) {
+    pub fn mirror(&mut self, pose: Pose) {
+        for row in self.grid_mut(pose).chunks_mut(SPRITE) {
             row.reverse();
         }
     }
@@ -171,20 +230,25 @@ impl Drawing {
         let eyes = eye_boxes(&base, self.eyes, &self.palette);
         let closed = close_eyes(&base, &eyes, false);
         let blink = close_eyes(&base, &eyes, true);
-        let (top, _, left, right) = bounds(&base);
 
-        let mut sleep1 = shift(&closed, 1);
+        // Poses desenhadas à mão substituem as geradas.
+        let asleep = self.drawn(Pose::Sleep).unwrap_or(closed);
+        let happy = self.drawn(Pose::Happy).unwrap_or(base);
+        let walking = self.drawn(Pose::Walk).unwrap_or_else(|| shift(&base, -1));
+
+        let mut sleep1 = shift(&asleep, 1);
         overlay(&mut sleep1, &Z_PATTERN, 12, 0, Z);
-        let mut sleep2 = shift(&closed, 1);
+        let mut sleep2 = shift(&asleep, 1);
         overlay(&mut sleep2, &Z_PATTERN, 11, 1, Z);
-        let mut happy1 = base;
+        let (top, _, left, right) = bounds(&happy);
+        let mut happy1 = happy;
         overlay(&mut happy1, &HEART_PATTERN, ((left + right) / 2).saturating_sub(2), top.saturating_sub(4), HEART);
 
-        let frames: [(&str, Grid); 13] = [
+        let mut frames: Vec<(&str, Grid)> = vec![
             ("idle", base),
             ("blink", blink),
             ("walk1", base),
-            ("walk2", shift(&base, -1)),
+            ("walk2", walking),
             ("yawn", closed),
             ("sleep1", sleep1),
             ("sleep2", sleep2),
@@ -193,8 +257,13 @@ impl Drawing {
             ("fall", base),
             ("land", squash(&closed)),
             ("happy1", happy1),
-            ("happy2", shift(&base, -2)),
+            ("happy2", shift(&happy, -2)),
         ];
+        if let Some(eating) = self.drawn(Pose::Eat) {
+            // Mastigando: a pose sobe e desce.
+            frames.push(("eat1", eating));
+            frames.push(("eat2", shift(&eating, 1)));
+        }
 
         // Letra de cada cor: olhos = 'e'; 'z' e 'h' ficam para os enfeites.
         let letters: Vec<u8> = b"kabcdfgijlmnopqrstuvwxy".to_vec();
@@ -223,6 +292,29 @@ impl Drawing {
         }
         out
     }
+}
+
+/// Uma grade de `size`×`size` reduzida para 16×16 (em cada bloco, a cor mais comum).
+fn shrink(chars: &[u8], size: usize) -> Vec<u8> {
+    if size == SPRITE {
+        return chars.to_vec();
+    }
+    let k = size / SPRITE;
+    (0..PIXELS)
+        .map(|i| {
+            let (x, y) = (i % SPRITE * k, i / SPRITE * k);
+            let mut count = [0u16; 128];
+            for dy in 0..k {
+                for dx in 0..k {
+                    let c = chars[(y + dy) * size + x + dx];
+                    count[c as usize & 127] += 1;
+                }
+            }
+            // Transparente só se o bloco for quase todo transparente.
+            let best = (1..128).max_by_key(|&c| count[c]).filter(|&c| count[c] * 4 >= (k * k) as u16).unwrap_or(0);
+            best as u8
+        })
+        .collect()
 }
 
 fn one_line(s: &str, fallback: &str) -> String {
@@ -477,9 +569,38 @@ mod tests {
         let mut d = blob();
         d.px[6 * SPRITE + 3] = 5;
         let before = d.px;
-        d.mirror();
+        d.mirror(Pose::Idle);
         assert_ne!(d.px, before);
-        d.mirror();
+        d.mirror(Pose::Idle);
         assert_eq!(d.px, before);
+    }
+
+    #[test]
+    fn drawn_poses_replace_the_generated_ones() {
+        let mut d = blob();
+        let auto = Art::parse(&d.to_mascot_txt()).unwrap();
+        assert_eq!(auto.index(Frame::Eat1), auto.index(Frame::Idle)); // sem pose de comer: usa a parada
+        let mut eating = d.px;
+        eating[15 * SPRITE + 7] = 5; // uma migalha no chão
+        *d.grid_mut(Pose::Eat) = eating;
+        *d.grid_mut(Pose::Sleep) = d.px;
+        let art = Art::parse(&d.to_mascot_txt()).unwrap();
+        assert_ne!(art.index(Frame::Eat1), art.index(Frame::Idle));
+        assert_ne!(frame(&art, Frame::Eat1), frame(&art, Frame::Idle));
+        d.clear(Pose::Eat);
+        assert!(d.grid(Pose::Eat).is_none());
+    }
+
+    #[test]
+    fn big_templates_are_shrunk_to_the_editor() {
+        let mut big = vec![0u8; 32 * 32];
+        for y in 8..32 {
+            for x in 8..24 {
+                big[y * 32 + x] = b'k';
+            }
+        }
+        let small = shrink(&big, 32);
+        assert_eq!(small.len(), PIXELS);
+        assert_eq!((small[4 * SPRITE + 4], small[0]), (b'k', 0));
     }
 }

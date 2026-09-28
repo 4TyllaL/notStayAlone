@@ -87,6 +87,11 @@ impl Canvas {
     }
 }
 
+/// Lado de um sprite quadrado a partir do número de pixels.
+fn sprite_side(pixels: &[u32]) -> usize {
+    (pixels.len() as f64).sqrt().round().max(1.0) as usize
+}
+
 /// Desenho com bordas suaves, para as partes da interface (painel e configurações).
 /// Cores em 0xAARRGGBB; o alpha da cor é a opacidade do que é pintado por cima.
 impl Canvas {
@@ -172,14 +177,24 @@ impl Canvas {
         }
     }
 
-    /// Desenha um sprite 16×16 (pixels 0xAARRGGBB, 0 = transparente) ampliado `scale` vezes.
+    /// Desenha um sprite quadrado (16×16 ou 32×32; pixels 0xAARRGGBB, 0 = transparente)
+    /// ampliado `scale` vezes.
     pub fn sprite(&mut self, x: i32, y: i32, scale: i32, pixels: &[u32]) {
+        let side = sprite_side(pixels);
         for (i, &c) in pixels.iter().enumerate() {
             if c >> 24 != 0 {
-                let (sx, sy) = ((i % 16) as i32, (i / 16) as i32);
+                let (sx, sy) = ((i % side) as i32, (i / side) as i32);
                 self.fill(x + sx * scale, y + sy * scale, scale, scale, c);
             }
         }
+    }
+
+    /// Sprite centralizado num quadrado de `box_px`, na maior escala inteira que cabe.
+    pub fn sprite_fit(&mut self, x: i32, y: i32, box_px: i32, pixels: &[u32]) {
+        let side = sprite_side(pixels) as i32;
+        let scale = (box_px / side).max(1);
+        let off = (box_px - side * scale) / 2;
+        self.sprite(x + off, y + off, scale, pixels);
     }
 
     /// Copia o canvas para um DC comum (janelas que não são em camadas).
