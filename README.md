@@ -142,8 +142,9 @@ Requires Rust (`stable-x86_64-pc-windows-gnu` or MSVC toolchain). With MSVC,
 DEP, ASLR, high-entropy ASLR and CFG are all set, the Ed25519 update signature, and a
 `BUILDINFO.txt` published next to the `.exe` with the exact commit, Rust/Cargo/MSVC/Windows SDK
 versions, flags and hashes. The build is reproducible bit for bit (no timestamps, dates or
-local paths in the `.exe`): the same commit with the same toolchain, MSVC and SDK gives the same
-SHA-256. Releases up to 1.2.4 were built with the GNU toolchain and have no CFG.
+local paths in the `.exe`): the same commit, checked out in `C:\StayAloneBuild\src` and built
+with the same toolchain, MSVC and SDK, gives the same SHA-256 (Rust hashes the project path
+into the crate, so the folder matters). Releases up to 1.2.4 were built with the GNU toolchain and have no CFG.
 
 ```bash
 cargo build --release

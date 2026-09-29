@@ -88,8 +88,10 @@ ligados, isolados, e quantos têm internet), inclusive o que ainda falta (sem Au
   verify` não encontra nada. O que existe no lugar: a assinatura Ed25519 (chave offline) e o
   `BUILDINFO.txt` de cada release (commit, toolchain Rust/MSVC/Windows SDK fixada, flags,
   SHA-256 do `.exe` e do `Cargo.lock`). O build é reproduzível bit a bit (`/Brepro`, data
-  de lançamento = data do commit, caminhos locais remapeados): qualquer pessoa pode compilar
-  o mesmo commit e comparar o SHA-256. Quando o Actions
+  de lançamento = data do commit, caminhos locais remapeados; checkout limpo sempre em
+  `C:\StayAloneBuild\src`, porque o caminho do projeto entra no hash do crate): qualquer
+  pessoa pode compilar o mesmo commit ali e comparar o SHA-256. O `release.ps1` também
+  não publica um `.exe` que o Microsoft Defender acuse. Quando o Actions
   voltar, a release volta a sair de lá com atestação.
 - **Atualização depende da chave de assinatura.** Controlar o GitHub não basta: sem a
   chave Ed25519 privada, a release não é aceita. O risco passa a ser essa chave (vazar ou

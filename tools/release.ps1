@@ -6,7 +6,8 @@
 #       ... e cria a release no GitHub
 #
 # Sempre o mesmo ambiente: toolchain Rust MSVC fixada (com Control Flow Guard, CRT
-# estático e /CETCOMPAT), árvore git limpa, e para quando falta alguma proteção.
+# estático e /CETCOMPAT), um checkout limpo do commit num caminho fixo, e para quando
+# falta alguma proteção ou quando o Microsoft Defender acusa o .exe.
 # O BUILDINFO registra commit, versões do Rust/Cargo/MSVC/Windows SDK, flags e hashes,
 # para quem quiser auditar ou reproduzir a release depois.
 param(
@@ -36,12 +37,24 @@ $notes = "docs/releases/v$Version.md"
 if (-not (Test-Path $notes)) { throw "faltam as notas em $notes" }
 $commit = (git rev-parse HEAD).Trim()
 
-# Caminhos desta máquina (nome de usuário, pasta do projeto) não entram no .exe, então o
-# build sai igual em qualquer PC. Esta variável substitui a de .cargo/config.toml: as
-# flags de lá vão junto.
+# Compila um checkout limpo do commit, sempre em C:\StayAloneBuild\src: o Rust usa o
+# caminho da pasta do projeto no hash interno do crate (muda o layout do código), então
+# só o mesmo caminho dá o mesmo .exe, aqui ou em qualquer PC. De quebra, nada da pasta de
+# trabalho (arquivos fora do git, fins de linha) entra na release.
+$src = 'C:\StayAloneBuild\src'
+if (Test-Path $src) {
+    git worktree remove --force $src 2>$null
+    if (Test-Path $src) { Remove-Item -Recurse -Force $src }
+}
+git worktree prune
+Run git worktree add --detach $src $commit
+Set-Location $src
+
+# Caminhos desta máquina (nome de usuário, pasta do projeto) não entram no .exe. Esta
+# variável substitui a de .cargo/config.toml: as flags de lá vão junto.
 $rustflags = (Select-String -Path .cargo/config.toml -Pattern '^rustflags = (.+)').Matches[0].Groups[1].Value | ConvertFrom-Json
 $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { "$env:USERPROFILE\.cargo" }
-$remap = "--remap-path-prefix=$cargoHome=/cargo", "--remap-path-prefix=$root=/src"
+$remap = "--remap-path-prefix=$cargoHome=/cargo", "--remap-path-prefix=$src=/src"
 $env:CARGO_ENCODED_RUSTFLAGS = ($rustflags + $remap) -join [char]0x1f
 Run rustup toolchain install $Toolchain --profile minimal --component clippy
 
@@ -57,6 +70,18 @@ $short = $commit.Substring(0, 12)
 $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes((Resolve-Path $exe)))
 if ($text -notmatch "$short(?!-dirty)") { throw "o .exe não traz o commit $short (build velho?)" }
 if ($text.Contains($env:USERPROFILE)) { throw "o .exe traz o caminho $env:USERPROFILE" }
+
+# O Defender (que o Chrome e o Edge usam em cada download) às vezes acusa um .exe novo
+# sem assinatura só pelo modelo de machine learning ("!ml"). Não publica o que ele acusa.
+$mp = "$env:ProgramFiles\Windows Defender\MpCmdRun.exe"
+if (Test-Path $mp) {
+    $scan = & $mp -Scan -ScanType 3 -File (Resolve-Path $exe).Path -DisableRemediation 2>&1 | Out-String
+    if ($scan -match 'Threat\s+:\s+(\S+)') {
+        throw "o Microsoft Defender acusou o .exe ($($Matches[1])). Não publique; se for falso positivo, envie em https://www.microsoft.com/en-us/wdsi/filesubmission"
+    }
+    if ($scan -notmatch 'found no threats') { throw "a verificação do Defender não terminou:`n$scan" }
+    Write-Host "Microsoft Defender: nada encontrado"
+}
 
 # --- assinatura da atualização (Ed25519, chave offline) ---------------------------
 Run cargo +$Toolchain run --release --example assinar '--' $Version $exe
@@ -94,19 +119,21 @@ $(& cargo +$Toolchain -V)
 MSVC              $msvc
 linker no PE      $linker
 Windows SDK       $sdk
+pasta do build    $src (checkout limpo; o caminho entra no hash do crate)
 rustflags         $($rustflags -join ' ') --remap-path-prefix=<CARGO_HOME>=/cargo --remap-path-prefix=<repo>=/src
 link.exe          $($linkArgs -join ' ')
 perfil release    $($relProfile -join '; ')
 
-Para conferir: no mesmo commit, com a mesma toolchain, MSVC e Windows SDK, rode
-tools/release.ps1 -Version $Version (ou cargo build com estas rustflags) e compare o SHA-256;
-a assinatura Ed25519 está em dontStayAlone.exe.sig.
+Para conferir: com a mesma toolchain, MSVC e Windows SDK, faça um checkout deste commit
+em $src e compile com estas rustflags (cargo build --release), ou rode
+tools/release.ps1 -Version $Version, e compare o SHA-256. A assinatura Ed25519 está em
+dontStayAlone.exe.sig.
 "@
 $buildinfo = 'target\release\BUILDINFO.txt'
-[IO.File]::WriteAllText((Join-Path $root $buildinfo), $info.Replace("`r`n", "`n"))
+[IO.File]::WriteAllText((Join-Path $src $buildinfo), $info.Replace("`r`n", "`n"))
 Write-Host $info
 
 # --- publicação -------------------------------------------------------------------
 $create = @('release', 'create', "v$Version", $exe, "$exe.sig", $buildinfo, '--target', $commit,
     '--title', "!StayAlone $Version", '--notes-file', $notes)
-if ($Publish) { Run gh @create } else { Write-Host "Tudo pronto. Para publicar: gh $create" -ForegroundColor Green }
+if ($Publish) { Run gh @create } else { Write-Host "Tudo pronto (em $src). Para publicar: gh $create" -ForegroundColor Green }
