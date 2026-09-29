@@ -52,6 +52,9 @@ public static class Smoke {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);
     /// O balão põe o que está falando no título da janela.
     public static string Text(IntPtr h) { var s = new System.Text.StringBuilder(1024); GetWindowTextW(h, s, 1024); return s.ToString(); }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "SendMessageW")] static extern IntPtr SendText(IntPtr h, uint msg, IntPtr n, System.Text.StringBuilder s);
+    /// Texto de um campo de texto de outro processo (GetWindowText só lê títulos): WM_GETTEXT.
+    public static string EditText(IntPtr h) { var s = new System.Text.StringBuilder(4096); SendText(h, 0x000D, (IntPtr)4096, s); return s.ToString(); }
     [DllImport("user32.dll")] static extern uint SendInput(uint n, INPUT[] inputs, int size);
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public int dx, dy; public uint data, flags, time; public IntPtr extra; public uint pad1, pad2; }
 
@@ -311,6 +314,42 @@ function Check-FolderApproval {
     Remove-Item -Recurse -Force $folder
 }
 
+# Pasta liberada de verdade (o caso do revisor): aprova `ler =`, clica em Testar SEM salvar
+# e o plugin lê o arquivo-sentinela; fecha sem salvar e a permissão sai da pasta.
+function Check-FolderAccess {
+    $probe = "C:\StayAloneSmokeProbe"
+    New-Item -ItemType Directory -Force $probe | Out-Null
+    Set-Content "$probe\sentinela.txt" "SENTINELA_OK" -Encoding ASCII
+    $folder = "$script:data\StayAlone\plugins\zz-leitor"
+    New-Item -ItemType Directory -Force $folder | Out-Null
+    Set-Content "$folder\plugin.ini" "name = Leitor`nkind = avisos`nrun = leitor.ps1`nler = $probe" -Encoding UTF8
+    Set-Content "$folder\leitor.ps1" "try { [IO.File]::ReadAllText('$probe\sentinela.txt').Trim() } catch { 'SEM_ACESSO: ' + `$_.Exception.InnerException.GetType().Name }" -Encoding UTF8
+    $s, $dlg = Open-Approval 2
+    Check ($dlg -ne [IntPtr]::Zero) "plugin que lê uma pasta pede confirmação"
+    if ($dlg -ne [IntPtr]::Zero) {
+        [Smoke]::PostMessageW($dlg, 0x0111, [IntPtr]6, [IntPtr]::Zero) | Out-Null # Ligar
+        Start-Sleep -Milliseconds 800
+        # Seleciona a linha (clique no nome, não na caixinha) e testa, sem salvar.
+        $list = [Smoke]::GetDlgItem($s, 160)
+        [Smoke]::PostMessageW($list, 0x0201, [IntPtr]1, (Lparam 120 (36 + 24 * 2))) | Out-Null
+        [Smoke]::PostMessageW($list, 0x0202, [IntPtr]0, (Lparam 120 (36 + 24 * 2))) | Out-Null
+        Start-Sleep -Milliseconds 500
+        [Smoke]::PostMessageW($s, 0x0111, [IntPtr]162, [IntPtr]::Zero) | Out-Null # Testar
+        $result = ""
+        $until = (Get-Date).AddSeconds(30)
+        while ((Get-Date) -lt $until -and $result -notmatch "SENTINELA_OK|SEM_ACESSO|✗") {
+            Start-Sleep -Milliseconds 500
+            $result = [Smoke]::EditText([Smoke]::GetDlgItem($s, 165))
+        }
+        Check ($result -match "SENTINELA_OK") "aprovado e testado antes de salvar, o plugin lê a pasta liberada ($result)"
+    }
+    if ($s -ne [IntPtr]::Zero) { [Smoke]::PostMessageW($s, 0x0111, [IntPtr]2, [IntPtr]::Zero) | Out-Null } # Cancelar
+    Start-Sleep -Milliseconds 2500
+    $acl = (icacls $probe) -join "`n"
+    Check ($acl -notmatch "S-1-15-2-") "fechando sem salvar, a pasta volta a ficar fechada para o plugin"
+    Remove-Item -Recurse -Force $folder, $probe
+}
+
 function Check-PluginApproval {
     Run-Exe "--configurar"
     $s = WaitFor "StayAloneSettings"
@@ -382,6 +421,7 @@ try {
     Shoot-Settings "pt-" $pages
     Check-PluginApproval
     Check-FolderApproval
+    Check-FolderAccess
     Stop-App
     Check ((Get-Content "$script:data\StayAlone\config.ini" -Raw) -notmatch "language=en") "português continua português"
     Start-App "en" "mascot=calcifer`nlanguage=en`ntheme=light`nupdates=off`n"

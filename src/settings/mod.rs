@@ -208,6 +208,10 @@ enum Busy {
 struct State {
     owner: HWND,
     draft: Config,
+    /// Os plugins como estavam salvos: ao fechar sem salvar, o acesso a pastas dado só
+    /// para testar (aprovado, mas não salvo) é retirado.
+    saved_plugins: Vec<Enabled>,
+    saved: bool,
     chat: ChatSettings,
     packs: Vec<PackInfo>,
     font: HFONT,
@@ -322,6 +326,8 @@ pub unsafe fn open(owner: HWND, config: &Config, small_icon: HICON, page: Page) 
     let state = Box::new(State {
         owner,
         draft: config.clone(),
+        saved_plugins: config.plugins.clone(),
+        saved: false,
         chat: ChatSettings::load(),
         packs,
         font: font(15, FW_NORMAL),
@@ -1624,6 +1630,7 @@ unsafe fn on_ok(hwnd: HWND) {
     st.draft.theme = Theme::ALL[combo_index(hwnd, IDC_THEME).min(Theme::ALL.len() - 1)];
     st.draft.language = Language::ALL[combo_index(hwnd, IDC_LANGUAGE).min(Language::ALL.len() - 1)];
     let autostart = is_checked(hwnd, IDC_AUTOSTART);
+    st.saved = true;
     mailbox::post(st.owner, WM_SETTINGS_APPLY, Draft { config: st.draft.clone(), autostart });
     DestroyWindow(hwnd);
 }
@@ -1873,6 +1880,9 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         }
         WM_DESTROY => {
             OPEN.with(|o| o.set(null_mut()));
+            if let Some(st) = state(hwnd).filter(|st| !st.saved) {
+                plugins::sync_folders(&st.draft.plugins, &st.saved_plugins);
+            }
             0
         }
         WM_NCDESTROY => {

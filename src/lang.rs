@@ -362,6 +362,7 @@ const EN: &[(&str, &str)] = &[
     ("não consegui ler", "couldn't read it"),
     ("Proteções", "Protections"),
     ("SHA-256", "SHA-256"),
+    ("não consegui liberar a pasta {}: {}", "couldn't open the folder {}: {}"),
     ("Commit", "Commit"),
     ("{} (sem {})", "{} (no {})"),
     ("IA ({})", "AI ({})"),

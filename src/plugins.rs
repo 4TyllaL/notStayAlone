@@ -34,7 +34,7 @@ use crate::{
     child::{self, Program, Reply},
     config::read_file,
     folders::{self, Access, MAX_FOLDERS},
-    lang::{self, tr},
+    lang::{self, fill, tr},
     sandbox, sha256,
     win::clean_line,
 };
@@ -344,7 +344,18 @@ pub fn request<T: Send + 'static>(
     let plugin = plugin.clone();
     let job = move || match approved {
         Some(approval) if !plugin.matches(&approval) => Err(CHANGED.into()),
-        approval => child::run(plugin.command(approval.is_some_and(|a| a.internet)), &input, MAX_OUTPUT),
+        approval => {
+            // As pastas aprovadas estão mesmo liberadas? (Se não der, não roda: melhor dizer
+            // por quê do que o plugin falhar sem acesso.)
+            if let Some(approval) = &approval {
+                for asked in plugin.requested_folders()? {
+                    let write = approval.folders.iter().any(|a| a.path.eq_ignore_ascii_case(&asked.path) && a.write);
+                    sandbox::ensure_folder(&plugin.id, Path::new(&asked.path), write)
+                        .map_err(|e| fill(tr("não consegui liberar a pasta {}: {}"), &[&asked.path, &e]))?;
+                }
+            }
+            child::run(plugin.command(approval.is_some_and(|a| a.internet)), &input, MAX_OUTPUT)
+        }
     };
     child::spawn(to, msg, job, wrap);
 }

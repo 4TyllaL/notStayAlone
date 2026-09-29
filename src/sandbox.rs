@@ -27,8 +27,9 @@ use windows_sys::{
     Win32::{
         Foundation::*,
         Security::{
-            Authorization::*, FreeSid, Isolation::*, ACL, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES,
-            SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, DACL_SECURITY_INFORMATION,
+            Authorization::*, EqualSid, FreeSid, GetAce, Isolation::*, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION,
+            INHERITED_ACE, PSECURITY_DESCRIPTOR, PSID, SECURITY_ATTRIBUTES, SECURITY_CAPABILITIES, SID_AND_ATTRIBUTES,
+            SUB_CONTAINERS_AND_OBJECTS_INHERIT,
         },
         System::{Com::CoTaskMemFree, Pipes::CreatePipe, Threading::*},
     },
@@ -187,6 +188,59 @@ unsafe fn set_access(folder: &Path, sid: PSID, mask: u32, mode: ACCESS_MODE) -> 
         return Err(format!("permissão da pasta ({err})"));
     }
     Ok(())
+}
+
+/// A pasta já dá `mask` ao SID do container, numa permissão explícita dela (não herdada)?
+unsafe fn has_access(folder: &Path, sid: PSID, mask: u32) -> Result<bool, String> {
+    const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
+    let path = wide(folder);
+    let (mut dacl, mut descriptor): (*mut ACL, PSECURITY_DESCRIPTOR) = (null_mut(), null_mut());
+    let err = GetNamedSecurityInfoW(
+        path.as_ptr(),
+        SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION,
+        null_mut(),
+        null_mut(),
+        &mut dacl,
+        null_mut(),
+        &mut descriptor,
+    );
+    if err != 0 {
+        return Err(format!("permissão da pasta ({err})"));
+    }
+    let mut found = false;
+    for i in 0..if dacl.is_null() { 0 } else { (*dacl).AceCount as u32 } {
+        let mut ace: *mut core::ffi::c_void = null_mut();
+        if GetAce(dacl, i, &mut ace) == 0 {
+            continue;
+        }
+        let ace = &*(ace as *const ACCESS_ALLOWED_ACE);
+        let explicit = ace.Header.AceFlags as u32 & INHERITED_ACE == 0;
+        if ace.Header.AceType == ACCESS_ALLOWED_ACE_TYPE && explicit && ace.Mask & mask == mask {
+            let ace_sid = &ace.SidStart as *const u32 as PSID;
+            if EqualSid(ace_sid, sid) != 0 {
+                found = true;
+                break;
+            }
+        }
+    }
+    LocalFree(descriptor as HLOCAL);
+    Ok(found)
+}
+
+/// Garante (antes de cada execução) que a pasta aprovada dá ao plugin o acesso aprovado:
+/// só conferir é rápido; aplica de novo só se faltar (aprovado e testado antes de salvar,
+/// ou alguém mexeu nas permissões da pasta).
+pub fn ensure_folder(id: &str, folder: &Path, write: bool) -> Result<(), String> {
+    let _lock = setup_lock();
+    unsafe {
+        let sid = container(id)?;
+        let mask = if write { FILE_MODIFY } else { FILE_READ_EXECUTE };
+        if !has_access(folder, sid.0, mask)? {
+            set_access(folder, sid.0, mask, SET_ACCESS)?;
+        }
+        Ok(())
+    }
 }
 
 /// Dá ao plugin `id` acesso a uma pasta que você aprovou (leitura, ou leitura e escrita).
@@ -465,6 +519,13 @@ mod tests {
         assert_eq!(run(), Ok("comprar pao|gravou".into()));
         revoke_folder("teste-pastas-ab", &notes).unwrap();
         assert_eq!(run(), Ok("sem-leitura|sem-escrita".into()));
+        // `ensure_folder` aplica o que falta e não mexe no que já está certo.
+        ensure_folder("teste-pastas-ab", &notes, false).unwrap();
+        assert_eq!(run(), Ok("comprar pao|sem-escrita".into()));
+        ensure_folder("teste-pastas-ab", &notes, false).unwrap();
+        ensure_folder("teste-pastas-ab", &notes, true).unwrap();
+        assert_eq!(run(), Ok("comprar pao|gravou".into()));
+        revoke_folder("teste-pastas-ab", &notes).unwrap();
         let _ = std::fs::remove_dir_all(&notes);
     }
 
