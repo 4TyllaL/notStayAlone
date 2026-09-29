@@ -180,3 +180,16 @@ Hi, {amigo}! So good to see you.
 {amigo} came to visit me!
 Wanna play, {amigo}?
 Look who's here: {amigo}!
+
+[pc_pesado]
+Phew, the PC is sweating... and so am I!
+It's heavy in here! Something is eating everything.
+Help, the CPU is boiling!
+I can't breathe! Memory is almost full.
+Oh no, oh no... the PC is working way too hard!
+
+[pc_aliviado]
+Phew! The PC can breathe again. Me too.
+There we go, everything's light again.
+Ahh, what a relief!
+All good, the PC is back to normal.

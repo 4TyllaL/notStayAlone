@@ -41,6 +41,7 @@ use crate::{
     lang::{fill, tr},
     folders::Access,
     plugins::{self, Enabled, Kind as PluginKind, Plugin, Status},
+    resources::{self, Sensitivity},
     secret::{self, KeySource},
     gfx::Canvas,
     sprite::{Frame, PIXELS, SPRITE},
@@ -73,6 +74,7 @@ pub enum Page {
     Maker,
     Plugins,
     Gallery,
+    Performance,
     /// Fora da lista: aberta pelo item "Sobre" no rodapé da barra lateral.
     About,
 }
@@ -83,13 +85,14 @@ const ABOUT: usize = Page::About as usize;
 const PROJECTS_URL: &str = "https://4tyllal.github.io/#projects";
 const GITHUB_URL: &str = "https://github.com/4TyllaL/notStayAlone";
 
-const PAGES: [(Page, char, &str); 6] = [
+const PAGES: [(Page, char, &str); 7] = [
     (Page::General, icon::HOME, "Geral"),
     (Page::Reminders, icon::BELL, "Lembretes"),
     (Page::Chat, icon::CHAT, "Conversa"),
     (Page::Maker, icon::PALETTE, "Criar mascote"),
     (Page::Plugins, icon::PUZZLE, "Plugins"),
     (Page::Gallery, icon::SHOP, "Galeria"),
+    (Page::Performance, icon::GAUGE, "Desempenho"),
 ];
 const SPEEDS: [&str; 4] = ["Devagar", "Normal", "Rápido", "Muito rápido"];
 
@@ -131,6 +134,9 @@ const IDC_SEC_FIRST: i32 = 184;
 /// Rótulo que corta o fim com "…" (winuser.h; o windows-sys não exporta).
 const SS_ENDELLIPSIS: u32 = 0x4000;
 const SECURITY_ROWS: [&str; 7] = ["Commit", "SHA-256", "Proteções", "Atualizações", "Chave da API", "Conexões", "Plugins"];
+const IDC_PC_MOOD: i32 = 153;
+const IDC_PC_NOW: i32 = 154;
+const IDC_PC_HELPER: i32 = 155;
 const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
@@ -656,6 +662,25 @@ unsafe fn build(hwnd: HWND) {
         40
     );
 
+    // --- Desempenho
+    let pc = Page::Performance as usize;
+    section!(pc, tr("Humor do mascote"), 116);
+    hint!(pc, tr("Com o processador ou a memória lá em cima por um tempo, ele fica agitado: sua e anda de um lado para o outro."), 140, 40);
+    label!(pc, tr("Ficar agitado"), x0, 190, 170);
+    add(Some(pc), "COMBOBOX", "", combo, 0, (cx, 188, cw, 200), IDC_PC_MOOD);
+    add(Some(pc), "STATIC", "", 0, 0, (x0, 224, CONTENT - 2 * x0, 20), IDC_PC_NOW);
+    hint!(pc, tr("Ele olha só o total do PC, a cada 6 segundos: quase nada de processador."), 248, 20);
+    section!(pc, tr("Aliviar o PC"), 304);
+    let check = BS_OWNERDRAW as u32 | WS_TABSTOP; // interruptor desenhado aqui
+    add(Some(pc), "BUTTON", tr("Com o PC pesado, sugerir o que fechar"), check, 0, (x0, 330, 460, 22), IDC_PC_HELPER);
+    hint!(
+        pc,
+        tr("Dê um petisco a ele (ou clique no balão) e ele mostra os 3 programas seus que mais pesam. Você escolhe: fechar, como clicar no X (o programa ainda pode perguntar se quer salvar), ou deixar com menos prioridade."),
+        360,
+        60
+    );
+    hint!(pc, tr("Nada é fechado sem você escolher. Programas do Windows, de outros usuários ou sem janela nunca aparecem."), 426, 40);
+
     // --- Galeria
     section!(5, tr("Mascotes da comunidade"), 116);
     hint!(
@@ -673,9 +698,9 @@ unsafe fn build(hwnd: HWND) {
     add(Some(5), "STATIC", "", 0, 0, (x0, 500, CONTENT - 2 * x0, 40), IDC_GALLERY_STATUS);
 
     // --- Sobre
-    section!(6, "!StayAlone", 116);
+    section!(ABOUT, "!StayAlone", 116);
     hint!(
-        6,
+        ABOUT,
         tr("Um mascote em pixel art que faz companhia na área de trabalho: lembra de beber água e fazer pausas, conversa com você e fica levinho, feito direto na API do Windows."),
         142,
         60
@@ -688,22 +713,22 @@ unsafe fn build(hwnd: HWND) {
             .enumerate()
     {
         let y = 214 + i as i32 * 26;
-        label!(6, name, x0, y, 170);
-        label!(6, value, cx, y, 280);
+        label!(ABOUT, name, x0, y, 170);
+        label!(ABOUT, value, cx, y, 280);
     }
-    add(Some(6), "BUTTON", tr("Meus projetos"), button, 0, (x0, 330, 150, 32), IDC_ABOUT_PROJECTS);
-    add(Some(6), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 330, 170, 32), IDC_ABOUT_GITHUB);
-    add(Some(6), "BUTTON", tr("Procurar atualização"), button, 0, (x0 + 336, 330, 172, 32), IDC_ABOUT_UPDATE);
-    add(Some(6), "STATIC", "", 0, 0, (x0, 370, CONTENT - 2 * x0, 20), IDC_ABOUT_STATUS);
+    add(Some(ABOUT), "BUTTON", tr("Meus projetos"), button, 0, (x0, 330, 150, 32), IDC_ABOUT_PROJECTS);
+    add(Some(ABOUT), "BUTTON", tr("Página no GitHub"), button, 0, (x0 + 158, 330, 170, 32), IDC_ABOUT_GITHUB);
+    add(Some(ABOUT), "BUTTON", tr("Procurar atualização"), button, 0, (x0 + 336, 330, 172, 32), IDC_ABOUT_UPDATE);
+    add(Some(ABOUT), "STATIC", "", 0, 0, (x0, 370, CONTENT - 2 * x0, 20), IDC_ABOUT_STATUS);
     // O que protege você, à vista (preenchido por `fill_security` quando a página abre).
-    section!(6, tr("Segurança e privacidade"), 422);
+    section!(ABOUT, tr("Segurança e privacidade"), 422);
     for (i, name) in SECURITY_ROWS.iter().enumerate() {
         let y = 446 + i as i32 * 24;
-        label!(6, tr(name), x0, y, 170);
-        add(Some(6), "STATIC", "", SS_ENDELLIPSIS, 0, (cx, y + 3, CONTENT - cx - x0, 20), IDC_SEC_FIRST + i as i32);
+        label!(ABOUT, tr(name), x0, y, 170);
+        add(Some(ABOUT), "STATIC", "", SS_ENDELLIPSIS, 0, (cx, y + 3, CONTENT - cx - x0, 20), IDC_SEC_FIRST + i as i32);
     }
     hint!(
-        6,
+        ABOUT,
         tr("Sem telemetria: só as conexões acima usam a rede."),
         620,
         22
@@ -938,6 +963,14 @@ unsafe fn populate(hwnd: HWND) {
     set_checked_box(hwnd, IDC_MEMORY, st.draft.memory);
     set_checked_box(hwnd, IDC_HOTKEY, st.draft.chat_hotkey);
     set_checked_box(hwnd, IDC_ACCESSORIES, st.draft.accessories);
+    set_checked_box(hwnd, IDC_PC_HELPER, st.draft.pc_helper);
+    let moods: Vec<String> = Sensitivity::ALL.iter().map(|m| m.label().to_string()).collect();
+    fill_combo(hwnd, IDC_PC_MOOD, &moods, Sensitivity::ALL.iter().position(|m| *m == st.draft.pc_mood).unwrap_or(2));
+    let now = match resources::last_cpu() {
+        Some(cpu) => fill(tr("Agora: processador em {}% · memória em {}%"), &[&cpu, &resources::ram_now()]),
+        None => fill(tr("Agora: memória em {}%"), &[&resources::ram_now()]),
+    };
+    set_text(hwnd, IDC_PC_NOW, &now);
     set_checked_box(hwnd, IDC_FOCUS_QUIET, st.draft.companion.focus_holds_reminders);
     set_text(hwnd, IDC_WATER_GOAL, &st.draft.companion.water_goal.to_string());
     set_text(hwnd, IDC_FOCUS, &st.draft.companion.focus_minutes.to_string());
@@ -1573,7 +1606,8 @@ unsafe fn on_memory_command(hwnd: HWND, id: i32) {
 }
 
 /// Os interruptores (desenhados aqui; o estado fica em `State::toggles`).
-const TOGGLES: [i32; 7] = [IDC_AUTOSTART, IDC_UPDATES, IDC_MEETINGS, IDC_MEMORY, IDC_FOCUS_QUIET, IDC_HOTKEY, IDC_ACCESSORIES];
+const TOGGLES: [i32; 8] =
+    [IDC_AUTOSTART, IDC_UPDATES, IDC_MEETINGS, IDC_MEMORY, IDC_FOCUS_QUIET, IDC_HOTKEY, IDC_ACCESSORIES, IDC_PC_HELPER];
 
 unsafe fn is_checked(hwnd: HWND, id: i32) -> bool {
     state(hwnd).and_then(|st| st.toggles.iter().find(|t| t.0 == id).map(|t| t.1)).unwrap_or(false)
@@ -1609,6 +1643,8 @@ unsafe fn on_ok(hwnd: HWND) {
     st.draft.companion.focus_holds_reminders = is_checked(hwnd, IDC_FOCUS_QUIET);
     st.draft.chat_hotkey = is_checked(hwnd, IDC_HOTKEY);
     st.draft.accessories = is_checked(hwnd, IDC_ACCESSORIES);
+    st.draft.pc_helper = is_checked(hwnd, IDC_PC_HELPER);
+    st.draft.pc_mood = Sensitivity::ALL[combo_index(hwnd, IDC_PC_MOOD).min(Sensitivity::ALL.len() - 1)];
     if let Some(p) = st.packs.get(combo_index(hwnd, IDC_MASCOT)) {
         st.draft.mascot = p.id.clone();
     }

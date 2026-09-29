@@ -179,3 +179,16 @@ Oi, {amigo}! Que bom te ver.
 {amigo} veio me visitar!
 Bora brincar, {amigo}?
 Olha quem chegou: {amigo}!
+
+[pc_pesado]
+Ufa, o PC tá suando... e eu também!
+Tá pesado aqui! Tem programa comendo tudo.
+Socorro, o processador tá fervendo!
+Tô sem ar! A memória tá no limite.
+Ai, ai, ai... o PC tá trabalhando demais!
+
+[pc_aliviado]
+Ufa! O PC respirou. Eu também.
+Agora sim, tudo levinho de novo.
+Ahh, que alívio!
+Pronto, o PC voltou ao normal.

@@ -8,7 +8,6 @@
 //! usuários ou sem janela nunca aparecem.
 
 use std::{
-    collections::HashSet,
     mem::{size_of, zeroed},
     ptr::null_mut,
     sync::atomic::{AtomicU16, Ordering},
@@ -139,7 +138,7 @@ impl Meter {
         let now = system_times()?;
         let before = self.last.replace(now)?;
         let (idle, total) = (now.0.saturating_sub(before.0), now.1.saturating_sub(before.1));
-        let cpu = if total == 0 { 0 } else { (100 * total.saturating_sub(idle) / total).min(100) as u8 };
+        let cpu = (100 * total.saturating_sub(idle)).checked_div(total).map_or(0, |c| c.min(100) as u8);
         let load = Load { cpu, ram: ram_now() };
         LAST.store((load.cpu as u16) << 8 | load.ram as u16, Ordering::Relaxed);
         Some(load)
@@ -350,7 +349,7 @@ unsafe fn display_name(path: &str) -> String {
 /// roda numa thread.
 pub fn measure(by_cpu: bool) -> Vec<Hog> {
     unsafe {
-        let with_window: HashSet<u32> = app_windows().into_iter().map(|(_, pid)| pid).collect();
+        let with_window: Vec<u32> = app_windows().into_iter().map(|(_, pid)| pid).collect();
         let procs = processes(0);
         let start = system_times();
         std::thread::sleep(Duration::from_secs(1));
@@ -406,7 +405,7 @@ unsafe fn processes_of(hog: &Hog, access: u32) -> Vec<Proc> {
 /// Pede para o programa fechar, como clicar no X de cada janela dele (ele pode
 /// perguntar se você quer salvar). Retorna quantas janelas receberam o pedido.
 pub unsafe fn close(hog: &Hog) -> usize {
-    let pids: HashSet<u32> = processes_of(hog, 0).iter().map(|p| p.pid).collect();
+    let pids: Vec<u32> = processes_of(hog, 0).iter().map(|p| p.pid).collect();
     let mut asked = 0;
     for (hwnd, pid) in app_windows() {
         if pids.contains(&pid) && PostMessageW(hwnd, WM_CLOSE, 0, 0) != 0 {

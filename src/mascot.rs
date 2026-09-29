@@ -63,6 +63,8 @@ pub struct Mascot {
     tired: bool,
     /// Você está digitando: não sai do lugar (mover a janela reexibe o ponteiro).
     still: bool,
+    /// PC pesado: anda de um lado para o outro, rápido, e não dá sono.
+    agitated: bool,
     /// X (centro) do objeto que ele quer alcançar.
     target: Option<f32>,
     arrived: bool,
@@ -95,6 +97,7 @@ impl Mascot {
             talking: false,
             tired: false,
             still: false,
+            agitated: false,
             target: None,
             arrived: false,
             rng: Rng::new(seed),
@@ -107,6 +110,15 @@ impl Mascot {
 
     pub fn set_tired(&mut self, tired: bool) {
         self.tired = tired;
+    }
+
+    pub fn set_agitated(&mut self, agitated: bool) {
+        self.agitated = agitated;
+    }
+
+    /// Agitado e acordado (suando): só aí o suor aparece.
+    pub fn sweating(&self) -> bool {
+        self.agitated && !self.sleeping()
     }
 
     /// Fica parado no lugar (animando só o desenho) enquanto `still` for verdadeiro.
@@ -369,6 +381,17 @@ impl Mascot {
             State::Eat => self.set(State::Happy, 16),
             _ if self.talking || self.still => self.set(State::Idle, 10),
             _ if self.target.is_some() => self.set(State::Chase, 600),
+            // Agitado: anda de um lado para o outro, sem parar muito e sem sono.
+            _ if self.agitated => {
+                if self.rng.range(0, 100) < 75 {
+                    self.facing_left = !self.facing_left;
+                    let t = self.rng.range(8, 30);
+                    self.set(State::Walk, t);
+                } else {
+                    let t = self.rng.range(4, 12);
+                    self.set(State::Idle, t);
+                }
+            }
             _ => {
                 let r = self.rng.range(0, 100);
                 if self.awake > self.sleepy_after && r < 10 {
@@ -420,7 +443,7 @@ impl Mascot {
         if self.tired && self.anim % 2 == 1 {
             return;
         }
-        let step = self.speed * self.scale;
+        let step = self.speed * self.scale * if self.agitated { 2.0 } else { 1.0 };
         self.x += if self.facing_left { -step } else { step };
         if self.x <= b.left {
             self.x = b.left;
@@ -597,6 +620,25 @@ mod tests {
         assert_eq!(m.frame(), Frame::Eat1);
         (0..25).for_each(|_| m.update(0.1, &B));
         assert_eq!(m.state, State::Happy);
+    }
+
+    #[test]
+    fn agitated_paces_and_never_yawns() {
+        let mut m = Mascot::new(4.0, 1.0, 29);
+        m.drop_in(&B);
+        run(&mut m, 500);
+        m.set_mood(0, 0); // já com sono
+        m.set_agitated(true);
+        let mut turns = 0;
+        let mut facing = m.facing_left;
+        for _ in 0..5_000 {
+            m.update(0.1, &B);
+            assert!(!m.sleeping(), "agitado não dorme");
+            turns += (m.facing_left != facing) as u32;
+            facing = m.facing_left;
+        }
+        assert!(turns > 20, "deveria andar de um lado para o outro ({turns})");
+        assert!(m.sweating());
     }
 
     #[test]

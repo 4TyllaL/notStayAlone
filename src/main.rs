@@ -25,6 +25,7 @@ mod pack;
 mod phrases;
 mod plugins;
 mod prop;
+mod resources;
 mod rng;
 mod sandbox;
 mod secret;
@@ -105,6 +106,12 @@ const WM_REMOTE: u32 = WM_APP + 4;
 const WM_PLUGIN_SAY: u32 = WM_APP + 9;
 /// Primeiro aviso de cada plugin: um minuto depois de abrir (ou de ligar o plugin).
 const NOTICE_FIRST_SECS: u64 = 60;
+/// Programas que mais pesam, medidos numa thread (`Vec<resources::Hog>` no `mailbox`).
+const WM_HOGS: u32 = WM_APP + 21;
+/// Uso do PC: lido a cada 3 rodadas do watch (6 s).
+const LOAD_EVERY: u32 = 3;
+/// "O PC tá pesado" no máximo a cada 20 min.
+const HEAVY_QUIET_SECS: u64 = 20 * 60;
 /// Resposta do filho que procura versões novas (`Reply` no `mailbox`).
 const WM_UPDATE_CHECKED: u32 = WM_APP + 11;
 /// Versão nova baixada e conferida (`Reply` com o caminho, no `mailbox`).
@@ -334,7 +341,8 @@ struct App {
     tray: Tray,
     /// Ícone do .exe (recurso 1), usado na janela de configurações.
     app_icon: HICON,
-    rendered: Option<(Frame, bool)>,
+    /// (frame, virado, gota de suor: 0 = sem, 1 a 3 = quanto desceu)
+    rendered: Option<(Frame, bool, u8)>,
     shown_at: (i32, i32),
     user_hidden: bool,
     busy_hidden: bool,
@@ -371,6 +379,13 @@ struct App {
     update_manual: bool,
     /// Programa de reunião em primeiro plano (com a opção ligada).
     meeting: bool,
+    /// Uso do PC (processador e memória) e se ele está pesado.
+    meter: resources::Meter,
+    /// Quando ele falou do PC pesado pela última vez (e se ainda falta dizer "ufa").
+    heavy_said: Option<u64>,
+    owes_relief: bool,
+    /// Medindo os programas que mais pesam agora.
+    hogs_busy: bool,
 }
 
 impl App {
@@ -451,6 +466,10 @@ impl App {
             update_checked: None,
             update_manual: false,
             meeting: false,
+            meter: resources::Meter::default(),
+            heavy_said: None,
+            owes_relief: false,
+            hogs_busy: false,
         }
     }
 
@@ -481,12 +500,17 @@ impl App {
 
     /// Só redesenha quando o frame muda; se só a posição mudou, apenas move a janela.
     unsafe fn present(&mut self) {
-        let frame = (self.mascot.frame(), self.mascot.facing_left);
+        // Suando: a gota desce ao lado da cabeça e recomeça.
+        let drop = if self.mascot.sweating() { (self.started.elapsed().as_millis() / 300 % 3) as u8 + 1 } else { 0 };
+        let frame = (self.mascot.frame(), self.mascot.facing_left, drop);
         let pos = (self.mascot.x.round() as i32, self.mascot.y.round() as i32);
         if self.rendered != Some(frame) {
             self.art.draw(frame.0, frame.1, self.draw_scale as usize, self.canvas.pixels());
             if let Some(hat) = self.hat {
                 hat.draw(self.canvas.pixels(), self.art.size(), self.draw_scale as usize, frame.1);
+            }
+            if drop > 0 {
+                accessory::sweat(self.canvas.pixels(), self.art.size(), self.draw_scale as usize, frame.1, drop as usize - 1);
             }
             self.canvas.present(self.hwnd, (pos != self.shown_at).then_some(pos));
             self.rendered = Some(frame);
@@ -714,6 +738,9 @@ impl App {
             if let Some(b) = self.buddy.as_mut() {
                 b.mascot.set_tired(self.companion.low_battery);
             }
+        }
+        if self.watch_count.is_multiple_of(LOAD_EVERY) {
+            self.check_load(now.secs);
         }
         if let Some((topic, text)) = self.pending.take() {
             self.speak(topic, text);
@@ -1118,6 +1145,15 @@ impl App {
         self.config.birthday = new.birthday;
         self.config.quiet_in_meetings = new.quiet_in_meetings;
         self.config.memory = new.memory;
+        self.config.pc_helper = new.pc_helper;
+        if new.pc_mood != self.config.pc_mood {
+            self.config.pc_mood = new.pc_mood;
+            // Muda o limite: recomeça a contar do zero (e desligado, acalma na hora).
+            self.meter.reset();
+            self.mascot.set_agitated(false);
+            self.rendered = None;
+            self.present();
+        }
         if new.accessories != self.config.accessories {
             self.config.accessories = new.accessories;
             self.update_hat();
@@ -1150,6 +1186,61 @@ impl App {
     unsafe fn save_state(&mut self) {
         self.last_save = self.secs();
         config::write_state(&self.companion.save_string());
+    }
+
+    // --- PC pesado --------------------------------------------------------
+
+    /// Lê o uso do PC e muda o humor dele quando o PC fica pesado (ou alivia).
+    unsafe fn check_load(&mut self, secs: u64) {
+        if self.config.pc_mood == resources::Sensitivity::Off {
+            return;
+        }
+        let Some(load) = self.meter.sample() else { return };
+        let Some(heavy) = self.meter.feed(load, self.config.pc_mood) else { return };
+        self.mascot.set_agitated(heavy);
+        self.rendered = None;
+        // Fora da tela, longe do PC ou em silêncio: só muda o jeito, sem falar.
+        let quiet = !self.visible() || self.companion.away() || self.companion.silenced(secs) || self.meeting;
+        if heavy {
+            let recent = self.heavy_said.is_some_and(|t| secs < t + HEAVY_QUIET_SECS);
+            if !quiet && !recent && self.bubble.topic.is_none() {
+                self.heavy_said = Some(secs);
+                self.owes_relief = true;
+                let line = self.phrases.pick(Topic::Heavy, &mut self.rng).to_string();
+                let mut text = self.companion.fill(&line, &self.art.name);
+                if self.config.pc_helper {
+                    text = format!("{text} {}", tr("(Me dá um petisco que eu ajudo!)"));
+                }
+                self.speak(Topic::Heavy, Some(text));
+            }
+        } else if std::mem::take(&mut self.owes_relief) && !quiet && self.bubble.topic.is_none() {
+            self.mascot.cheer();
+            self.say(Topic::Relieved);
+        }
+    }
+
+    /// Mede (numa thread, ~1 s) os programas que mais pesam; a lista volta em `WM_HOGS`.
+    unsafe fn request_hogs(&mut self) {
+        if self.hogs_busy {
+            return;
+        }
+        self.hogs_busy = true;
+        let (hwnd, by_cpu) = (self.hwnd as isize, self.meter.by_cpu);
+        std::thread::spawn(move || mailbox::post(hwnd as HWND, WM_HOGS, resources::measure(by_cpu)));
+    }
+
+    /// Você escolheu o que fazer com um programa da lista (`close` = fechar, senão deixar mais leve).
+    unsafe fn on_hog_chosen(&mut self, hog: &resources::Hog, close: bool) {
+        let done = if close { resources::close(hog) } else { resources::lighten(hog) };
+        let text = match (done, close) {
+            (0, _) => fill(tr("Não consegui mexer em {} (é protegido ou roda como administrador)."), &[&hog.name]),
+            (_, true) => fill(tr("Nhac! Pedi para {} fechar. Se ele perguntar algo, é com você!"), &[&hog.name]),
+            (_, false) => fill(tr("Pronto! {} agora roda com menos prioridade."), &[&hog.name]),
+        };
+        if done > 0 {
+            self.mascot.eat();
+        }
+        self.speak(Topic::App, Some(text));
     }
 
     // --- brincadeiras -----------------------------------------------------
@@ -1243,7 +1334,11 @@ impl App {
                     }
                 }
                 self.companion.on_fed(self.secs());
-                if !buddy {
+                if self.meter.heavy && self.config.pc_helper {
+                    // PC pesado: o petisco vira energia para ele caçar o que está pesando.
+                    self.speak(Topic::App, Some(tr("Nhac! Energia! Deixa eu ver o que está pesando...").into()));
+                    self.request_hogs();
+                } else if !buddy {
                     self.say(Topic::Yummy); // quem fala é o principal
                 }
             }
@@ -1375,6 +1470,8 @@ impl App {
             Some(Topic::Guide) => self.stop_guide(),
             Some(Topic::Eyes) => self.start_guide(guide::Kind::Eyes),
             Some(Topic::Stretch) => self.start_guide(guide::Kind::Stretch),
+            // "O PC tá pesado": clicar no balão também pede a lista.
+            Some(Topic::Heavy) if self.config.pc_helper => self.request_hogs(),
             _ => {
                 if let Some(reply) = topic.and_then(|t| self.companion.on_ack(t)) {
                     self.say(reply);
@@ -1614,6 +1711,43 @@ unsafe fn open_flyout(hwnd: HWND) {
     flyout::open(hwnd, model, cursor());
 }
 
+/// Menu com os programas que mais pesam: para cada um, fechar ou deixar mais leve.
+/// O menu bombeia mensagens enquanto está aberto: não segura referência ao App.
+unsafe fn show_hogs(hwnd: HWND, hogs: Vec<resources::Hog>) {
+    let Some(app) = app_of(hwnd) else { return };
+    app.hogs_busy = false;
+    if hogs.is_empty() {
+        return app.speak(Topic::App, Some(tr("Não achei nenhum programa seu pesando. Deve ser o próprio Windows trabalhando.").into()));
+    }
+    let size = app.mascot.size();
+    let at = POINT { x: (app.mascot.x + size / 2.0) as i32, y: app.mascot.y as i32 };
+    app.hide_bubble();
+    const CLOSE: usize = 100;
+    const LIGHTEN: usize = 200;
+    let menu = CreatePopupMenu();
+    AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, w(tr("O que está pesando agora:")).as_ptr());
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    for (i, hog) in hogs.iter().enumerate() {
+        let sub = CreatePopupMenu();
+        AppendMenuW(sub, MF_STRING, CLOSE + i, w(tr("Fechar (como clicar no X)")).as_ptr());
+        AppendMenuW(sub, MF_STRING, LIGHTEN + i, w(tr("Deixar mais leve (menos prioridade)")).as_ptr());
+        AppendMenuW(menu, MF_POPUP, sub as usize, w(&hog.label()).as_ptr());
+    }
+    AppendMenuW(menu, MF_SEPARATOR, 0, null());
+    AppendMenuW(menu, MF_STRING, 1, w(tr("Deixa quieto")).as_ptr());
+    // Sem isto o menu não fecha ao clicar fora.
+    SetForegroundWindow(hwnd);
+    let flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_CENTERALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON;
+    let chosen = TrackPopupMenu(menu, flags, at.x, at.y, 0, hwnd, null()) as usize;
+    DestroyMenu(menu); // leva os submenus junto
+    let Some(app) = app_of(hwnd) else { return };
+    match chosen {
+        c if (CLOSE..CLOSE + hogs.len()).contains(&c) => app.on_hog_chosen(&hogs[c - CLOSE], true),
+        c if (LIGHTEN..LIGHTEN + hogs.len()).contains(&c) => app.on_hog_chosen(&hogs[c - LIGHTEN], false),
+        _ => {}
+    }
+}
+
 /// Executa uma escolha do painel (ou da linha de comando, via `WM_REMOTE`).
 unsafe fn run_action(hwnd: HWND, action: Action) {
     let Some(app) = app_of(hwnd) else { return };
@@ -1643,7 +1777,8 @@ unsafe fn run_action(hwnd: HWND, action: Action) {
             app.companion.silence(secs);
             app.say(Topic::Silence);
         }
-        Action::Feed if app.companion.hungry(secs) => app.spawn_toy(Kind::Food),
+        // PC pesado com a ajuda ligada: ele sempre aceita (o petisco é o jeito de pedir ajuda).
+        Action::Feed if app.companion.hungry(secs) || (app.meter.heavy && app.config.pc_helper) => app.spawn_toy(Kind::Food),
         Action::Feed => app.say(Topic::Full),
         Action::Ball if ball_out => app.remove_toy(),
         Action::Ball => app.spawn_toy(Kind::Ball),
@@ -1709,6 +1844,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_FLYOUT_ACTION => {
             if let Some(action) = mailbox::take::<Action>(hwnd, msg) {
                 run_action(hwnd, action);
+            }
+            return 0;
+        }
+        WM_HOGS => {
+            if let Some(hogs) = mailbox::take::<Vec<resources::Hog>>(hwnd, msg) {
+                show_hogs(hwnd, hogs);
             }
             return 0;
         }

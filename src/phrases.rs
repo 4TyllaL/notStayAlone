@@ -55,6 +55,10 @@ pub enum Topic {
     Week,
     /// O amigo na tela veio visitar ({amigo} = o nome dele).
     Friend,
+    /// O PC está pesado (processador ou memória lá em cima).
+    Heavy,
+    /// O PC voltou ao normal.
+    Relieved,
     /// Lembrete personalizado: o texto vem da configuração, não do arquivo de falas.
     Reminder,
     /// Pausa guiada em andamento (texto vem do `guide`).
@@ -68,12 +72,12 @@ pub enum Topic {
 }
 
 /// Nomes no arquivo, na mesma ordem do enum `Topic`.
-const KEYS: [&str; 34] = [
+const KEYS: [&str; 36] = [
     "bom_dia", "boa_tarde", "boa_noite", "madrugada", "voltou", "saudade", "agua", "alongar",
     "olhos", "meia_noite", "carinho", "carinho_muito", "obrigado", "pomodoro_inicio",
     "pomodoro_pausa", "pomodoro_volta", "resumo", "silencio", "ola", "petisco", "cheio",
     "bolinha_fim", "bateria_baixa", "carregando", "digitando", "aniversario", "segunda", "sexta", "fim_de_semana",
-    "sem_pausa", "meta_agua", "sequencia", "semana", "amigo",
+    "sem_pausa", "meta_agua", "sequencia", "semana", "amigo", "pc_pesado", "pc_aliviado",
 ];
 
 #[derive(Clone)]

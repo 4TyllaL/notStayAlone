@@ -114,6 +114,8 @@ pub mod icon {
     pub const PALETTE: char = '\u{E790}';
     pub const PUZZLE: char = '\u{EA86}';
     pub const SHOP: char = '\u{E719}';
+    /// "Diagnóstico" (linha de batimento): uso do PC.
+    pub const GAUGE: char = '\u{E9D9}';
     pub const SETTINGS: char = '\u{E713}';
     pub const FOOD: char = '\u{EC32}';
     pub const GAME: char = '\u{E7FC}';

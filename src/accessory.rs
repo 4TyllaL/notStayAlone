@@ -94,10 +94,70 @@ impl Hat {
     }
 }
 
+/// Gota de suor (PC pesado), em pixels de um sprite 16×16.
+const DROP: [&str; 4] = [".b.", "bbb", "wbb", ".b."];
+const DROP_BLUE: u32 = 0xFF4A_A8E8;
+
+/// Desenha uma gota de suor escorrendo ao lado da cabeça (`phase` 0 a 2 = quanto já desceu),
+/// num frame já desenhado em `out` (mesmas medidas de `Hat::draw`).
+pub fn sweat(out: &mut [u32], size: usize, scale: usize, flip: bool, phase: usize) {
+    let width = size * scale;
+    let unit = (size / 16).max(1);
+    let opaque = |x: usize, y: usize| out[y * scale * width + x * scale] >> 24 != 0;
+    // Topo da cabeça como no chapéu; a gota fica do lado de fora do contorno, na testa.
+    let mid = size / 2;
+    let Some(head) = (0..size).find(|&y| (mid - 2 * unit..mid + 2 * unit).all(|x| opaque(x, y))) else { return };
+    let rows = head..(head + 4 * unit).min(size);
+    let edge = |x: usize| rows.clone().any(|y| opaque(x, y));
+    let w = DROP[0].len() as i32;
+    let side = if flip {
+        (0..size).find(|&x| edge(x)).map_or(0, |x| (x / unit) as i32 - w)
+    } else {
+        (0..size).rev().find(|&x| edge(x)).map_or(16 - w, |x| (x / unit) as i32 + 1)
+    };
+    let left = side.clamp(0, 16 - w);
+    let top = (head / unit) as i32 + phase as i32;
+    for (ry, row) in DROP.iter().enumerate() {
+        for (rx, key) in row.bytes().enumerate() {
+            let (hx, hy) = (left + rx as i32, top + ry as i32);
+            if key == b'.' || hy >= 16 {
+                continue;
+            }
+            let c = if key == b'w' { 0xFFFF_FFFF } else { DROP_BLUE };
+            let (x0, y0, px) = (hx as usize * unit * scale, hy as usize * unit * scale, unit * scale);
+            if x0 + px > width || y0 + px > width {
+                continue;
+            }
+            for y in y0..y0 + px {
+                out[y * width + x0..y * width + x0 + px].fill(c);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sprite::{Art, Frame};
+
+    /// A gota aparece em todo mascote embutido, virado para os dois lados.
+    #[test]
+    fn sweat_shows_on_every_mascot() {
+        for (id, src, ..) in crate::pack::EMBEDDED {
+            let art = Art::parse(src).unwrap();
+            let size = art.size();
+            for flip in [false, true] {
+                for phase in 0..3 {
+                    let scale = 3;
+                    let mut out = vec![0; size * size * scale * scale];
+                    art.draw(Frame::Walk1, flip, scale, &mut out);
+                    let before = out.clone();
+                    sweat(&mut out, size, scale, flip, phase);
+                    assert!(out.contains(&DROP_BLUE) && before != out, "{id} flip={flip} phase={phase}");
+                }
+            }
+        }
+    }
 
     #[test]
     fn hats_follow_the_calendar() {

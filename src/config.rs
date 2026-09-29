@@ -15,6 +15,7 @@ use crate::{
     plugins::{Enabled, NATIVE_ID},
 };
 use crate::lang::tr;
+use crate::resources::Sensitivity;
 use crate::win::{clean_line, w};
 
 /// Nenhum arquivo de texto do app (configurações, mods, falas) passa disso:
@@ -101,6 +102,10 @@ pub struct Config {
     pub chat_hotkey: bool,
     /// Acessórios de época (gorro no Natal, chapéu de bruxa no Halloween...).
     pub accessories: bool,
+    /// Fica agitado quando o PC está pesado (e quão fácil).
+    pub pc_mood: Sensitivity,
+    /// Com o PC pesado, sugere o que fechar (sempre pergunta antes).
+    pub pc_helper: bool,
 }
 
 /// Claro, escuro ou o mesmo do Windows.
@@ -219,6 +224,8 @@ impl Config {
             language: Language::Auto,
             chat_hotkey: true,
             accessories: true,
+            pc_mood: Sensitivity::Normal,
+            pc_helper: false,
         };
         // Config de antes dos plugins: vale o padrão (só a conversa nativa ligada).
         let mut plugins_saved = false;
@@ -267,6 +274,8 @@ impl Config {
                 "focus_quiet" => config.companion.focus_holds_reminders = value != "off",
                 "chat_hotkey" => config.chat_hotkey = value != "off",
                 "accessories" => config.accessories = value != "off",
+                "pc_mood" => config.pc_mood = Sensitivity::ALL.into_iter().find(|s| s.key() == value).unwrap_or(Sensitivity::Normal),
+                "pc_helper" => config.pc_helper = value == "on",
                 // reminder=on|30|Conferir o e-mail
                 "reminder" => {
                     let mut parts = value.splitn(3, '|');
@@ -354,7 +363,11 @@ impl Config {
              # Ctrl+Alt+M abre a conversa: on | off\n\
              chat_hotkey={}\n\
              # acessórios de época no mascote (Natal, Halloween, aniversário...): on | off\n\
-             accessories={}\n",
+             accessories={}\n\
+             # ficar agitado com o PC pesado: off | low | normal | high\n\
+             pc_mood={}\n\
+             # com o PC pesado, sugerir o que fechar (sempre pergunta antes): on | off\n\
+             pc_helper={}\n",
             on_off(self.updates),
             on_off(self.quiet_in_meetings),
             self.buddy,
@@ -366,7 +379,9 @@ impl Config {
             self.companion.break_minutes,
             on_off(self.companion.focus_holds_reminders),
             on_off(self.chat_hotkey),
-            on_off(self.accessories)
+            on_off(self.accessories),
+            self.pc_mood.key(),
+            on_off(self.pc_helper)
         );
         text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256[|internet][|r=pasta lida][|w=pasta gravada]\nplugins=\n";
         for e in &self.plugins {
@@ -624,7 +639,10 @@ mod tests {
         c.memory = false;
         c.theme = Theme::Dark;
         c.language = Language::English;
+        c.pc_mood = Sensitivity::High;
+        c.pc_helper = true;
         let back = Config::parse(&c.to_text());
+        assert!(back.pc_mood == Sensitivity::High && back.pc_helper);
         assert!(!back.updates && !back.memory && back.quiet_in_meetings);
         assert_eq!((back.birthday, back.buddy.as_str(), back.theme, back.language), (Some((7, 3)), "lance", Theme::Dark, Language::English));
     }

@@ -53,6 +53,8 @@ com o seu mascote (muda na hora quando você escolhe outro) e as páginas:
   Mascotes podem ser 16×16 ou 32×32 — ou descreva o mascote e peça para a **IA desenhar**,
   depois ajuste. "Salvar e usar" já coloca ele na tela (fica em `%APPDATA%\StayAlone\mascots\`).
 - **Plugins:** liga e desliga os plugins (veja abaixo), com botão de teste.
+- **Desempenho:** quando ele fica agitado com o PC pesado (nunca, só muito pesado, pesado,
+  sensível) e a ajuda para aliviar o PC (vem desligada).
 - **Sobre** (no rodapé da barra lateral): o que é o app, a versão, a data de lançamento e
   links para a minha página de projetos e para este repositório. O cartão **Segurança e
   privacidade** mostra, sem jargão, o que protege você: SHA-256 do `.exe` em uso (compare
@@ -174,6 +176,12 @@ Troque clicando no desenho dele no painel. Cada um tem falas próprias ("Miau!",
   boceja mais); agradece quando você liga o carregador.
 - **Digitação intensa:** quando você digita sem parar por uns 20 s, ele comemora
   (e às vezes comenta, no máximo a cada 45 min).
+- **PC pesado:** com o processador ou a memória lá em cima por um tempo, ele sua e anda de um
+  lado para o outro (e avisa no máximo a cada 20 min); quando o PC alivia, ele comemora. Com a
+  ajuda ligada, dê um petisco (ou clique no balão) e ele mostra os 3 programas seus que mais
+  pesam: você escolhe **fechar** (igual ao X — o programa ainda pode perguntar se quer salvar)
+  ou **deixar mais leve** (menos prioridade). Nada é fechado sem você escolher, e programas do
+  Windows, de outros usuários ou sem janela nunca aparecem.
 - **Afeto** (♥ na dica do ícone): sobe com carinho, pausas, água, petiscos e
   brincadeiras; cai bem devagar e nunca abaixo de um piso.
 - **Resumo do dia** (automático após as 18h, ou pelo painel): tempo juntos, pausas e água.

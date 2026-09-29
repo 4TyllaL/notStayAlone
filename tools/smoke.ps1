@@ -251,8 +251,8 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     if ($s -eq [IntPtr]::Zero) { return }
     Start-Sleep -Milliseconds 800
     foreach ($page in $pages.GetEnumerator()) {
-        # Páginas da navegação a cada 44 px; "Sobre" (6) fica no rodapé da barra lateral.
-        $y = if ($page.Key -eq 6) { 656 } else { 191 + 44 * $page.Key }
+        # Páginas da navegação a cada 44 px; "Sobre" (7) fica no rodapé da barra lateral.
+        $y = if ($page.Key -eq 7) { 656 } else { 191 + 44 * $page.Key }
         [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
         [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
         Start-Sleep -Milliseconds 700
@@ -385,7 +385,7 @@ function Check-PluginApproval {
     Start-Sleep -Milliseconds 800
     Check ((Get-Content "$script:data\StayAlone\config.ini" -Raw) -notmatch "curiosidades") "respondendo Não, o plugin fica desligado"
 }
-$pages = [ordered]@{ 0 = "general"; 1 = "reminders"; 2 = "chat"; 3 = "maker"; 4 = "plugins"; 5 = "gallery"; 6 = "about" }
+$pages = [ordered]@{ 0 = "general"; 1 = "reminders"; 2 = "chat"; 3 = "maker"; 4 = "plugins"; 5 = "gallery"; 6 = "performance"; 7 = "about" }
 
 try {
     Write-Host "1. Primeira vez (boas-vindas)"

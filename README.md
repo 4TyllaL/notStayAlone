@@ -57,6 +57,10 @@ say yes (you can turn update checks off in Settings).
   checks the name of the program in front, never the screen).
 - **Play:** drag and throw it around, give it a treat, play ball. Reacts to low battery
   and to long typing streaks. Hides itself during full-screen games, videos and presentations.
+- **Feels your PC:** when the CPU or memory stays maxed out, it sweats and paces back and forth.
+  Optionally, give it a treat and it lists your 3 heaviest programs so you can close one (like
+  clicking the X) or lower its priority — nothing happens unless you pick it, and Windows
+  programs never show up.
 - **Mascot maker:** draw one pose and the app generates every animation (blink, sleep,
   walk, fall, happy). Optionally draw your own sleeping, eating, happy and walking poses
   (with onion skin). Mascots can be 16×16 or 32×32 — or describe one and let the AI draw it.
