@@ -1,7 +1,8 @@
-//! Pergunta de sim/não no visual do app (no lugar da `MessageBox` do Windows):
-//! cartão com ícone, texto, um destaque opcional, uma lista com ✓ e uma nota em cinza.
-//! É modal: o dono fica desabilitado até a resposta. Esc, fechar ou "não" = `false`;
-//! o foco começa no "não", então Enter sem pensar não aprova nada.
+//! Pergunta de sim/não no visual do app (no lugar da `MessageBox` do Windows), curta:
+//! ícone e título, uma frase, um quadro com uma linha por item (ícone + texto; laranja
+//! quando pede atenção) e uma nota em cinza. É modal: o dono fica desabilitado até a
+//! resposta. Esc, fechar ou "não" = `false`; o foco começa no "não", então Enter sem
+//! pensar não aprova nada.
 //!
 //! O texto fica em controles STATIC (leitores de tela e o smoke test leem de lá);
 //! o fundo, o cartão e os ícones são pintados.
@@ -32,33 +33,43 @@ use crate::{
 };
 
 const CLASS: &str = "StayAloneAsk";
-const WIDTH: i32 = 480;
-const PAD: i32 = 20;
-/// Onde o texto começa (à direita do ícone).
-const TEXT_X: i32 = 92;
+const WIDTH: i32 = 440;
+/// Margem da janela até o cartão e do cartão até o conteúdo.
+const MARGIN: i32 = 16;
+const INSET: i32 = 20;
+const ICON: i32 = 40;
 const ID_TITLE: i32 = 10;
-const ID_BODY: i32 = 11;
-/// Destaques: 30, 31, ...
-const ID_CHIP: i32 = 30;
-const ID_LIST_TITLE: i32 = 13;
-const ID_ITEM: i32 = 20; // 20, 21, ...
+const ID_SUBTITLE: i32 = 11;
 const ID_NOTE: i32 = 14;
-const SHIELD: char = '\u{EA18}';
-const WARNING: char = '\u{E7BA}';
-const CHECK: char = '\u{E73E}';
+/// Linhas do quadro: 30, 31, ...
+const ID_ROW: i32 = 30;
 /// Estilos de STATIC (winuser.h; o windows-sys não exporta): texto à esquerda, com quebra, sem &.
 const SS_LEFT: u32 = 0x0;
 const SS_NOPREFIX: u32 = 0x80;
 
+/// Ícones (Segoe Fluent Icons / MDL2) para as linhas e o cabeçalho.
+pub mod icon {
+    pub const SHIELD: char = '\u{EA18}';
+    pub const LOCK: char = '\u{E72E}';
+    pub const GLOBE: char = '\u{E774}';
+    pub const FOLDER: char = '\u{E8B7}';
+    pub const WARNING: char = '\u{E7BA}';
+}
+
+/// Uma linha do quadro.
+pub struct Row<'a> {
+    pub icon: char,
+    pub text: &'a str,
+    /// Pede atenção (laranja).
+    pub warn: bool,
+}
+
 /// O que perguntar.
 pub struct Question<'a> {
     pub title: &'a str,
-    pub body: &'a str,
-    /// Destaques logo abaixo do texto; `true` = alerta (laranja).
-    pub chips: &'a [(&'a str, bool)],
-    pub list_title: &'a str,
-    pub items: &'a [&'a str],
-    /// Nota em cinza no fim (ex.: o SHA-256).
+    pub subtitle: &'a str,
+    pub rows: &'a [Row<'a>],
+    /// Nota em cinza no fim, numa linha curta.
     pub note: &'a str,
     pub yes: &'a str,
     pub no: &'a str,
@@ -73,12 +84,12 @@ struct State {
     icons: HFONT,
     big_icon: HFONT,
     card_brush: HBRUSH,
-    soft_brush: HBRUSH,
-    alert_brush: HBRUSH,
-    /// Cartão, ícone, destaque e as marcas ✓ (em pixels).
+    panel_brush: HBRUSH,
     card: RECT,
-    chips: Vec<(RECT, bool)>,
-    checks: Vec<(i32, i32)>,
+    panel: Option<RECT>,
+    /// Ícone de cada linha: posição, glifo, atenção?
+    marks: Vec<(i32, i32, char, bool)>,
+    warn: bool,
 }
 
 thread_local! {
@@ -102,25 +113,23 @@ pub unsafe fn ask(owner: HWND, q: &Question) -> bool {
     let dpi = GetDpiForSystem();
     let s = |v: i32| v * dpi as i32 / 96;
     let font = |size: i32, weight: u32| ui_font(s(size), weight);
-    let dark = theme::is_dark();
+    let warn = q.rows.iter().any(|r| r.warn);
     let mut st = Box::new(State {
         dpi,
         font: font(14, FW_NORMAL),
         bold: font(14, FW_SEMIBOLD),
-        title: font(18, FW_SEMIBOLD),
+        title: font(17, FW_SEMIBOLD),
         small: font(12, FW_NORMAL),
-        icons: theme::icon_font(s(14)),
-        big_icon: theme::icon_font(s(24)),
+        icons: theme::icon_font(s(15)),
+        big_icon: theme::icon_font(s(20)),
         card_brush: CreateSolidBrush(theme::colorref(theme::card())),
-        soft_brush: CreateSolidBrush(theme::colorref(theme::soft())),
-        alert_brush: CreateSolidBrush(theme::colorref(theme::accent_soft())),
+        panel_brush: CreateSolidBrush(theme::colorref(theme::soft())),
         card: zeroed(),
-        chips: Vec::new(),
-        checks: Vec::new(),
+        panel: None,
+        marks: Vec::new(),
+        warn,
     });
 
-    // Layout: mede cada texto na largura disponível e empilha.
-    let text_w = s(WIDTH - PAD - TEXT_X);
     let measure = |font: HFONT, text: &str, width: i32| -> i32 {
         let dc = CreateCompatibleDC(null_mut());
         let old = SelectObject(dc, font);
@@ -131,50 +140,45 @@ pub unsafe fn ask(owner: HWND, q: &Question) -> bool {
         DeleteDC(dc);
         r.bottom
     };
-    let x = s(TEXT_X);
+
+    // Layout: tudo alinhado à mesma margem do cartão; só o título fica ao lado do ícone.
+    let (left, right) = (s(MARGIN + INSET), s(WIDTH - MARGIN - INSET));
     let mut labels: Vec<(i32, RECT, HFONT, &str)> = Vec::new();
-    let mut y = s(PAD + 20);
-    let title_h = measure(st.title, q.title, text_w);
-    labels.push((ID_TITLE, RECT { left: x, top: y, right: x + text_w, bottom: y + title_h }, st.title, q.title));
-    y += title_h + s(6);
-    if !q.body.is_empty() {
-        let h = measure(st.font, q.body, text_w);
-        labels.push((ID_BODY, RECT { left: x, top: y, right: x + text_w, bottom: y + h }, st.font, q.body));
-        y += h + s(12);
+    let top = s(MARGIN + INSET);
+    let head_x = left + s(ICON + 14);
+    let title_h = measure(st.title, q.title, right - head_x);
+    let sub_h = if q.subtitle.is_empty() { 0 } else { measure(st.small, q.subtitle, right - head_x) };
+    let head_h = title_h + if sub_h > 0 { s(2) + sub_h } else { 0 };
+    // Título (e frase) centralizados na altura do ícone quando cabem.
+    let head_y = top + (s(ICON) - head_h).max(0) / 2;
+    labels.push((ID_TITLE, RECT { left: head_x, top: head_y, right, bottom: head_y + title_h }, st.title, q.title));
+    if sub_h > 0 {
+        let y = head_y + title_h + s(2);
+        labels.push((ID_SUBTITLE, RECT { left: head_x, top: y, right, bottom: y + sub_h }, st.small, q.subtitle));
     }
-    for (i, &(text, alert)) in q.chips.iter().enumerate() {
-        let inner = text_w - s(40);
-        let h = measure(st.font, text, inner);
-        let chip = RECT { left: x, top: y, right: x + text_w, bottom: y + h + s(16) };
-        let id = ID_CHIP + i as i32;
-        labels.push((id, RECT { left: x + s(32), top: y + s(8), right: x + s(32) + inner, bottom: y + s(8) + h }, st.font, text));
-        st.chips.push((chip, alert));
-        y = chip.bottom + s(6);
-    }
-    if !q.chips.is_empty() {
+    let mut y = (top + s(ICON)).max(head_y + head_h) + s(16);
+    if !q.rows.is_empty() {
+        let panel_top = y;
         y += s(10);
-    }
-    if !q.items.is_empty() {
-        let h = measure(st.bold, q.list_title, text_w);
-        labels.push((ID_LIST_TITLE, RECT { left: x, top: y, right: x + text_w, bottom: y + h }, st.bold, q.list_title));
-        y += h + s(6);
-        for (i, item) in q.items.iter().enumerate() {
-            let inner = text_w - s(24);
-            let h = measure(st.font, item, inner);
-            st.checks.push((x, y));
-            labels.push((ID_ITEM + i as i32, RECT { left: x + s(24), top: y, right: x + s(24) + inner, bottom: y + h }, st.font, item));
-            y += h + s(4);
+        let text_x = left + s(12 + 26);
+        for (i, row) in q.rows.iter().enumerate() {
+            let h = measure(st.font, row.text, right - s(12) - text_x).max(s(20));
+            st.marks.push((left + s(12), y, row.icon, row.warn));
+            labels.push((ID_ROW + i as i32, RECT { left: text_x, top: y, right: right - s(12), bottom: y + h }, st.font, row.text));
+            y += h + s(8);
         }
-        y += s(10);
+        y += s(2);
+        st.panel = Some(RECT { left, top: panel_top, right, bottom: y });
+        y += s(12);
     }
     if !q.note.is_empty() {
-        let h = measure(st.small, q.note, text_w);
-        labels.push((ID_NOTE, RECT { left: x, top: y, right: x + text_w, bottom: y + h }, st.small, q.note));
+        let h = measure(st.small, q.note, right - left);
+        labels.push((ID_NOTE, RECT { left, top: y, right, bottom: y + h }, st.small, q.note));
         y += h;
     }
-    st.card = RECT { left: s(PAD), top: s(PAD), right: s(WIDTH - PAD), bottom: y + s(20) };
+    st.card = RECT { left: s(MARGIN), top: s(MARGIN), right: s(WIDTH - MARGIN), bottom: y + s(INSET) };
     let (button_h, button_top) = (s(32), st.card.bottom + s(14));
-    let (cw, ch) = (s(WIDTH), button_top + button_h + s(PAD - 4));
+    let (cw, ch) = (s(WIDTH), button_top + button_h + s(MARGIN));
 
     let style = WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN;
     let mut rect = RECT { left: 0, top: 0, right: cw, bottom: ch };
@@ -207,7 +211,7 @@ pub unsafe fn ask(owner: HWND, q: &Question) -> bool {
     // O estado vem antes dos controles: os botões já se desenham com ele.
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(st) as isize);
     win::caption_color(hwnd, theme::bg());
-    win::dark_title(hwnd, dark);
+    win::dark_title(hwnd, theme::is_dark());
 
     let add = |class: &str, text: &str, style: u32, r: RECT, id: i32, font: HFONT| {
         let control = CreateWindowExW(
@@ -231,8 +235,8 @@ pub unsafe fn ask(owner: HWND, q: &Question) -> bool {
         add("STATIC", text, SS_LEFT | SS_NOPREFIX, r, id, font);
     }
     let button = BS_OWNERDRAW as u32 | WS_TABSTOP;
-    let (yes_w, no_w) = (s(136), s(120));
-    let yes_x = cw - s(PAD) - yes_w;
+    let (yes_w, no_w) = (s(128), s(112));
+    let yes_x = cw - s(MARGIN) - yes_w;
     let no_x = yes_x - s(8) - no_w;
     let no = add("BUTTON", q.no, button, RECT { left: no_x, top: button_top, right: no_x + no_w, bottom: button_top + button_h }, IDNO, font);
     add("BUTTON", q.yes, button, RECT { left: yes_x, top: button_top, right: yes_x + yes_w, bottom: button_top + button_h }, IDYES, bold);
@@ -292,23 +296,19 @@ unsafe fn paint(hwnd: HWND, st: &State) {
     c.fill(0, 0, client.right, client.bottom, argb(theme::bg()));
     let r = st.card;
     c.card((r.left, r.top, r.right - r.left, r.bottom - r.top), s(10), argb(theme::card()), argb(theme::border()));
-    // Ícone: escudo num círculo (alerta, se algum destaque for um alerta).
-    let alert = st.chips.iter().any(|&(_, alert)| alert);
-    let (ix, iy, size) = (r.left + s(20), r.top + s(20), s(44));
+    // Ícone do cabeçalho: escudo (ou alerta, se alguma linha pede atenção).
+    let (ix, iy, size) = (r.left + s(INSET), r.top + s(INSET), s(ICON));
     c.round_rect(ix, iy, size, size, size / 2, argb(theme::accent_soft()));
-    let glyph = if alert { WARNING } else { SHIELD };
+    let glyph = if st.warn { icon::WARNING } else { icon::SHIELD };
     let icon_rect = RECT { left: ix, top: iy, right: ix + size, bottom: iy + size };
     c.text(st.big_icon, &glyph.to_string(), icon_rect, theme::accent(), DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-    for &(chip, alert) in &st.chips {
-        let fill = if alert { theme::accent_soft() } else { theme::soft() };
-        c.round_rect(chip.left, chip.top, chip.right - chip.left, chip.bottom - chip.top, s(8), argb(fill));
-        let mark = RECT { left: chip.left + s(8), top: chip.top + s(8), right: chip.left + s(28), bottom: chip.top + s(28) };
-        let (glyph, ink) = if alert { (WARNING, theme::accent_dark()) } else { (CHECK, theme::muted()) };
-        c.text(st.icons, &glyph.to_string(), mark, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    if let Some(p) = st.panel {
+        c.round_rect(p.left, p.top, p.right - p.left, p.bottom - p.top, s(8), argb(theme::soft()));
     }
-    for &(x, y) in &st.checks {
-        let mark = RECT { left: x, top: y + s(2), right: x + s(18), bottom: y + s(20) };
-        c.text(st.icons, &CHECK.to_string(), mark, theme::accent(), DT_LEFT | DT_TOP | DT_SINGLELINE);
+    for &(x, y, glyph, warn) in &st.marks {
+        let mark = RECT { left: x, top: y, right: x + s(20), bottom: y + s(20) };
+        let ink = if warn { theme::accent() } else { theme::muted() };
+        c.text(st.icons, &glyph.to_string(), mark, ink, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
     c.blit(dc, 0, 0);
     EndPaint(hwnd, &ps);
@@ -329,11 +329,11 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let dc = wp as HDC;
             SetBkMode(dc, TRANSPARENT as _);
             let id = GetDlgCtrlID(lp as HWND);
-            let chip = usize::try_from(id - ID_CHIP).ok().and_then(|i| st.chips.get(i));
-            let (ink, brush) = match chip {
-                Some((_, true)) => (theme::accent_dark(), st.alert_brush),
-                Some((_, false)) => (theme::text(), st.soft_brush),
-                None if id == ID_NOTE => (theme::muted(), st.card_brush),
+            let row = usize::try_from(id - ID_ROW).ok().and_then(|i| st.marks.get(i));
+            let (ink, brush) = match row {
+                Some(&(_, _, _, true)) => (theme::accent_dark(), st.panel_brush),
+                Some(_) => (theme::text(), st.panel_brush),
+                None if id == ID_NOTE || id == ID_SUBTITLE => (theme::muted(), st.card_brush),
                 None => (theme::text(), st.card_brush),
             };
             SetTextColor(dc, theme::colorref(ink));
@@ -373,8 +373,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     DeleteObject(font);
                 }
                 DeleteObject(st.card_brush);
-                DeleteObject(st.soft_brush);
-                DeleteObject(st.alert_brush);
+                DeleteObject(st.panel_brush);
             }
             DefWindowProcW(hwnd, msg, wp, lp)
         }

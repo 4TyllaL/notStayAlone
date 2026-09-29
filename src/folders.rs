@@ -32,9 +32,14 @@ pub struct Access {
 }
 
 impl Access {
-    /// "Só lê: C:\..." / "Lê e grava: C:\..."
+    /// "Lê: Documents\Notas" / "Lê e grava: D:\Fotos" (dentro do perfil, sem o começo).
     pub fn label(&self) -> String {
-        fill(if self.write { tr("Lê e grava: {}") } else { tr("Só lê: {}") }, &[&self.path])
+        let profile = std::env::var("USERPROFILE").unwrap_or_default();
+        let short = match self.path.get(..profile.len()) {
+            Some(start) if !profile.is_empty() && start.eq_ignore_ascii_case(&profile) => self.path[profile.len()..].trim_start_matches('\\'),
+            _ => &self.path,
+        };
+        fill(if self.write { tr("Lê e grava: {}") } else { tr("Lê: {}") }, &[&short])
     }
 }
 

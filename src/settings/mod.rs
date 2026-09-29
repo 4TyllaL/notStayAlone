@@ -130,16 +130,7 @@ const IDC_ABOUT_STATUS: i32 = 183;
 const IDC_SEC_FIRST: i32 = 184;
 /// Rótulo que corta o fim com "…" (winuser.h; o windows-sys não exporta).
 const SS_ENDELLIPSIS: u32 = 0x4000;
-const SECURITY_ROWS: [&str; 8] = [
-    "Este programa",
-    "SHA-256 do .exe",
-    "Proteções",
-    "Atualizações",
-    "Chave da API",
-    "Conexões",
-    "Iniciar com o Windows",
-    "Plugins",
-];
+const SECURITY_ROWS: [&str; 7] = ["Commit", "SHA-256", "Proteções", "Atualizações", "Chave da API", "Conexões", "Plugins"];
 const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
@@ -648,11 +639,14 @@ unsafe fn build(hwnd: HWND) {
     add(Some(4), "BUTTON", tr("Testar"), button, 0, (x0, 494, 100, 30), IDC_PLUGIN_TEST);
     add(Some(4), "BUTTON", tr("Abrir pasta de plugins"), button, 0, (x0 + 108, 494, 180, 30), IDC_PLUGIN_FOLDER);
     add(Some(4), "BUTTON", tr("Atualizar lista"), button, 0, (x0 + 296, 494, 130, 30), IDC_PLUGIN_RELOAD);
-    add(Some(4), "STATIC", "", 0, 0, (x0, 534, CONTENT - 2 * x0, 44), IDC_PLUGIN_RESULT);
+    // Resposta do teste: só leitura, com rolagem (uma resposta longa aparece inteira).
+    let result = ES_MULTILINE as u32 | ES_READONLY as u32 | ES_AUTOVSCROLL as u32 | WS_VSCROLL;
+    let result = add(Some(4), "EDIT", "", result, 0, (x0, 534, CONTENT - 2 * x0, 76), IDC_PLUGIN_RESULT);
+    ShowScrollBar(result, SB_VERT, 0);
     hint!(
         4,
         tr("Crie o seu com um .exe ou um script PowerShell: veja o LEIA-ME.txt e o exemplo \"Curiosidades\" na pasta de plugins."),
-        588,
+        618,
         40
     );
 
@@ -698,15 +692,15 @@ unsafe fn build(hwnd: HWND) {
     // O que protege você, à vista (preenchido por `fill_security` quando a página abre).
     section!(6, tr("Segurança e privacidade"), 422);
     for (i, name) in SECURITY_ROWS.iter().enumerate() {
-        let y = 446 + i as i32 * 23;
+        let y = 446 + i as i32 * 24;
         label!(6, tr(name), x0, y, 170);
         add(Some(6), "STATIC", "", SS_ENDELLIPSIS, 0, (cx, y + 3, CONTENT - cx - x0, 20), IDC_SEC_FIRST + i as i32);
     }
     hint!(
         6,
-        tr("Sem telemetria. O mascote em si nunca usa a rede: só processos separados, quando você conversa, procura versão ou abre a Galeria."),
-        630,
-        40
+        tr("Sem telemetria: só as conexões acima usam a rede."),
+        620,
+        22
     );
 
     // --- Rodapé (fora dos cartões)
@@ -799,9 +793,10 @@ fn protections() -> String {
         let pe = base.add(std::ptr::read_unaligned(base.add(0x3C) as *const u32) as usize);
         std::ptr::read_unaligned(pe.add(24 + 70) as *const u16)
     };
-    let names = [(0x0100, "DEP"), (0x0040, "ASLR"), (0x0020, tr("ASLR alta entropia")), (0x4000, "CFG")];
-    let on: Vec<&str> = names.iter().filter(|(bit, _)| flags & bit != 0).map(|&(_, n)| n).collect();
-    let off: Vec<&str> = names.iter().filter(|(bit, _)| flags & bit == 0).map(|&(_, n)| n).collect();
+    // "ASLR" só com as duas marcas (endereço aleatório e de alta entropia).
+    let names = [(0x0100, "DEP"), (0x0060, "ASLR"), (0x4000, "CFG")];
+    let on: Vec<&str> = names.iter().filter(|(bits, _)| flags & bits == *bits).map(|&(_, n)| n).collect();
+    let off: Vec<&str> = names.iter().filter(|(bits, _)| flags & bits != *bits).map(|&(_, n)| n).collect();
     if off.is_empty() { on.join(" · ") } else { fill(tr("{} (sem {})"), &[&on.join(" · "), &off.join(", ")]) }
 }
 
@@ -811,21 +806,17 @@ unsafe fn fill_security(hwnd: HWND) {
     let sha = st.exe_sha.get_or_insert_with(|| {
         std::env::current_exe().and_then(std::fs::read).map(|b| crate::sha256::hex(&b)).unwrap_or_default()
     });
-    let sha = if sha.len() == 64 { format!("{}…{}", &sha[..20], &sha[44..]) } else { tr("não consegui ler").into() };
-    let program = fill(tr("v{} · commit {} · sem Authenticode (ainda)"), &[&crate::update::current(), &short_commit()]);
+    let sha = if sha.len() == 64 { format!("{}…{}", &sha[..16], &sha[48..]) } else { tr("não consegui ler").into() };
+    let program = short_commit();
 
-    let updates = if is_checked(hwnd, IDC_UPDATES) {
-        tr("1× por dia; só instala assinadas e com o seu OK")
-    } else {
-        tr("procura desligada; ao atualizar, só assinadas")
-    };
+    let updates = if is_checked(hwnd, IDC_UPDATES) { tr("Só assinadas, com o seu OK") } else { tr("Desligadas") };
 
     let key_name = text_of(item(hwnd, IDC_KEYENV));
     let key = match secret::find(&key_name) {
-        _ if key_name.trim().is_empty() => tr("o serviço escolhido não usa chave"),
-        Some(KeySource::Vault) => tr("no Gerenciador de Credenciais do Windows"),
-        Some(KeySource::Environment) => tr("numa variável de ambiente (prefira salvar aqui)"),
-        None => tr("nenhuma salva"),
+        _ if key_name.trim().is_empty() => tr("Não precisa"),
+        Some(KeySource::Vault) => tr("Guardada no Windows"),
+        Some(KeySource::Environment) => tr("Em variável de ambiente"),
+        None => tr("Nenhuma"),
     };
 
     let enabled = |id: &str| st.draft.plugins.iter().any(|e| e.id == id);
@@ -839,29 +830,24 @@ unsafe fn fill_security(hwnd: HWND) {
     }
     net.push(tr("Galeria").to_string());
 
-    let autostart = if is_checked(hwnd, IDC_AUTOSTART) { tr("sim") } else { tr("não") };
-
     let external: Vec<&Plugin> = st.plugins.iter().filter(|p| !p.is_native()).collect();
     let on = external.iter().filter(|p| enabled(&p.id)).count();
     let online = external.iter().filter(|p| enabled(&p.id) && p.internet).count();
     let with_folders = st.draft.plugins.iter().filter(|e| !e.folders.is_empty()).count();
     let plugins = if on == 0 {
-        fill(tr("{} instalado(s), nenhum ligado"), &[&external.len()])
+        tr("Nenhum ligado").to_string()
     } else {
-        let mut parts = vec![fill(tr("{} ligado(s), isolados (sandbox)"), &[&on])];
+        let mut parts = vec![fill(tr("{} ligado(s), isolados"), &[&on])];
         if online > 0 {
             parts.push(fill(tr("{} com internet"), &[&online]));
         }
         if with_folders > 0 {
-            parts.push(fill(tr("{} com pastas suas"), &[&with_folders]));
+            parts.push(fill(tr("{} com pastas"), &[&with_folders]));
         }
-        if online == 0 && with_folders == 0 {
-            parts.push(tr("sem internet").into());
-        }
-        parts.join("; ")
+        parts.join(" · ")
     };
 
-    let values = [program, sha, protections(), updates.into(), key.into(), net.join(" · "), autostart.into(), plugins];
+    let values = [program, sha, protections(), updates.into(), key.into(), net.join(" · "), plugins];
     for (i, value) in values.iter().enumerate() {
         set_text(hwnd, IDC_SEC_FIRST + i as i32, value);
     }
@@ -1310,47 +1296,51 @@ unsafe fn approve(hwnd: HWND, plugin: &Plugin) -> Option<Enabled> {
             return None;
         }
     };
-    let file = plugin.program.file_name().map_or(String::new(), |f| f.to_string_lossy().into_owned());
-    let limits = [
-        if folders.is_empty() {
-            tr("não lê nem muda seus arquivos: só lê a própria pasta e grava numa pasta de dados só dele")
-        } else {
-            tr("fora das pastas acima, não lê nem muda seus arquivos")
-        },
-        tr("não pode abrir outros programas, usar a área de transferência nem mexer nas suas janelas"),
-        tr("roda sem janela, por até 2 minutos; só o texto que ele escreve chega ao mascote"),
-        tr("se o arquivo mudar, ele para até você aprovar de novo"),
-    ];
-    let network = if plugin.internet {
-        (tr("Pede acesso à internet: pode enviar o que recebe do app (e o que ele mesmo tem) para fora do PC."), true)
-    } else {
-        (tr("Sem internet."), false)
-    };
-    let body = [plugin.about.clone(), fill(tr("É um programa ({}) de fora do !StayAlone. Ele roda isolado."), &[&file])]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    // O hash em blocos de 8, fácil de comparar de olho.
-    let blocks: Vec<&str> = (0..fingerprint.len()).step_by(8).map(|i| &fingerprint[i..(i + 8).min(fingerprint.len())]).collect();
-    let note = format!("{}\nSHA-256: {}", tr("Ligue só plugins de quem você confia."), blocks.join(" "));
     let labels: Vec<String> = folders.iter().map(Access::label).collect();
-    let mut chips: Vec<(&str, bool)> = labels.iter().map(|l| (l.as_str(), true)).collect();
-    chips.push(network);
+    let mut rows = vec![ask::Row { icon: ask::icon::LOCK, text: tr("Isolado do resto do seu PC"), warn: false }];
+    rows.extend(labels.iter().map(|l| ask::Row { icon: ask::icon::FOLDER, text: l, warn: true }));
+    rows.push(if plugin.internet {
+        ask::Row { icon: ask::icon::GLOBE, text: tr("Usa a internet"), warn: true }
+    } else {
+        ask::Row { icon: ask::icon::GLOBE, text: tr("Sem internet"), warn: false }
+    });
+    let note = fill(tr("Só ligue se confiar em quem fez · SHA-256 {}…{}"), &[&&fingerprint[..8], &&fingerprint[56..]]);
     let question = ask::Question {
-        title: &fill(tr("Ligar o plugin \"{}\"?"), &[&plugin.name]),
-        body: &body,
-        chips: &chips,
-        list_title: tr("O que o !StayAlone garante (sandbox do Windows, AppContainer):"),
-        items: &limits,
+        title: &fill(tr("Ligar \"{}\"?"), &[&plugin.name]),
+        subtitle: &plugin.about,
+        rows: &rows,
         note: &note,
-        yes: tr("Ligar plugin"),
+        yes: tr("Ligar"),
         no: tr("Agora não"),
     };
     if !ask::ask(hwnd, &question) {
         return None;
     }
     Some(Enabled { id: plugin.id.clone(), fingerprint, internet: plugin.internet, folders })
+}
+
+/// Mostra o resultado do teste; a barra de rolagem só aparece se o texto não couber.
+unsafe fn set_result(hwnd: HWND, text: &str) {
+    const VISIBLE_LINES: isize = 4;
+    let control = item(hwnd, IDC_PLUGIN_RESULT);
+    ShowScrollBar(control, SB_VERT, 0);
+    SetWindowTextW(control, w(text).as_ptr());
+    if SendMessageW(control, EM_GETLINECOUNT, 0, 0) > VISIBLE_LINES {
+        ShowScrollBar(control, SB_VERT, 1);
+    }
+}
+
+/// O que o plugin escreveu, inteiro (até um limite), linha a linha e sem caracteres de
+/// controle, para a caixa do teste.
+fn test_output(text: &str) -> String {
+    use crate::win::clean_line;
+    const MAX: usize = 4000;
+    let lines: Vec<String> = text.lines().map(|l| clean_line(l, MAX)).filter(|l| !l.is_empty()).collect();
+    let mut out = lines.join("\r\n");
+    if out.chars().count() > MAX {
+        out = out.chars().take(MAX).collect::<String>() + "…";
+    }
+    out
 }
 
 unsafe fn on_plugin_command(hwnd: HWND, id: i32) {
@@ -1362,7 +1352,7 @@ unsafe fn on_plugin_command(hwnd: HWND, id: i32) {
                 return;
             }
             if plugin.status(&st.draft.plugins) != Status::On {
-                set_text(hwnd, IDC_PLUGIN_RESULT, tr("Ligue o plugin para testar."));
+                set_result(hwnd, tr("Ligue o plugin para testar."));
                 return;
             }
             let input = match plugin.kind {
@@ -1374,7 +1364,7 @@ unsafe fn on_plugin_command(hwnd: HWND, id: i32) {
                 }
             };
             st.busy = Some(Busy::Plugin);
-            set_text(hwnd, IDC_PLUGIN_RESULT, &fill(tr("Testando \"{}\"..."), &[&plugin.name]));
+            set_result(hwnd, &fill(tr("Testando \"{}\"..."), &[&plugin.name]));
             let approved = plugin.approved(&st.draft.plugins);
             plugins::request(hwnd, WM_CHAT_REPLY, &plugin, approved, input, |reply| reply);
         }
@@ -1519,10 +1509,10 @@ unsafe fn on_reply(hwnd: HWND, reply: Reply) {
         },
         (Some(Busy::Draw), Err(e)) => set_text(hwnd, IDC_AI_STATUS, &fill(tr("Não deu: {}"), &[&chat::shorten(&e)])),
         (Some(Busy::Plugin), Ok(text)) if text.is_empty() => {
-            set_text(hwnd, IDC_PLUGIN_RESULT, tr("✓ Rodou, mas não tinha nada para falar desta vez."));
+            set_result(hwnd, tr("✓ Rodou, mas não tinha nada para falar desta vez."));
         }
-        (Some(Busy::Plugin), Ok(text)) => set_text(hwnd, IDC_PLUGIN_RESULT, &fill(tr("✓ Respondeu: \"{}\""), &[&chat::shorten(&text)])),
-        (Some(Busy::Plugin), Err(e)) => set_text(hwnd, IDC_PLUGIN_RESULT, &format!("✗ {}", chat::shorten(&e))),
+        (Some(Busy::Plugin), Ok(text)) => set_result(hwnd, &fill(tr("✓ Respondeu: {}"), &[&test_output(&text)])),
+        (Some(Busy::Plugin), Err(e)) => set_result(hwnd, &format!("✗ {}", test_output(&e))),
         (Some(Busy::GalleryList), Ok(text)) => {
             st.gallery = gallery::parse_lines(&text);
             st.gallery_loaded = true;

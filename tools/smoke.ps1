@@ -299,9 +299,9 @@ function Check-FolderApproval {
     Check ($dlg -ne [IntPtr]::Zero) "plugin com pastas pede confirmação"
     if ($dlg -ne [IntPtr]::Zero) {
         $text = Ask-Text $dlg
-        Check ($text -match "Só lê: .+" -and $text -match "Lê e grava: .+Downloads") "a pergunta mostra as pastas e o que ele faz em cada uma"
-        Check ($text -match "internet") "a pergunta avisa da internet"
-        Check ($text -match 'plugin "Agenda"') "o plugin.ini com BOM é lido inteiro (nome certo)"
+        Check ($text -match "(?m)^Lê: \S" -and $text -match "Lê e grava: Downloads") "a pergunta mostra as pastas e o que ele faz em cada uma"
+        Check ($text -match "Usa a internet") "a pergunta avisa da internet"
+        Check ($text -match 'Ligar "Agenda"') "o plugin.ini com BOM é lido inteiro (nome certo)"
         Save ([Smoke]::Print($dlg)) "plugin-approval-folders"
         [Smoke]::PostMessageW($dlg, 0x0111, [IntPtr]7, [IntPtr]::Zero) | Out-Null # Não
         Start-Sleep -Milliseconds 500
@@ -336,8 +336,8 @@ function Check-PluginApproval {
         $text = Ask-Text $dlg
         $text = $text -replace '(?<=[0-9a-f]{8}) (?=[0-9a-f]{8})', ''
         $hash = (Get-FileHash "$script:data\StayAlone\plugins\curiosidades\curiosidades.ps1").Hash.ToLower()
-        Check ($text -match "roda isolado" -and $text -match "Sem internet") "a pergunta diz que o plugin roda isolado e sem internet"
-        Check ($text -match "SHA-256: $hash") "a pergunta mostra o SHA-256 do arquivo"
+        Check ($text -match "Isolado" -and $text -match "Sem internet") "a pergunta diz que o plugin roda isolado e sem internet"
+        Check ($text -match "SHA-256 $($hash.Substring(0, 8))…$($hash.Substring(56))") "a pergunta mostra o SHA-256 do arquivo"
         Save ([Smoke]::Print($dlg)) "plugin-approval"
         [Smoke]::PostMessageW($dlg, 0x0111, [IntPtr]7, [IntPtr]::Zero) | Out-Null # Não
         Start-Sleep -Milliseconds 500
