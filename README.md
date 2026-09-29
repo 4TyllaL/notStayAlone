@@ -17,7 +17,7 @@ on the Win32 API, with no UI framework.
 | | Target | Measured |
 |---|---|---|
 | Executable | < 5 MB | ~880 KB — a single `.exe`, AI chat included |
-| Private memory | < 20 MB | ~2–4 MB |
+| Private memory | < 20 MB | ~2 MB (Task Manager shows ~1.3 MB) |
 | CPU | ~0% | ~0.03% of the machine |
 
 ## Download
