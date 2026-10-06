@@ -3,9 +3,9 @@
 //! dos controles nativos.
 
 use windows_sys::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
     Graphics::Gdi::{
-        BeginPaint, EndPaint, InvalidateRect, SetTextColor, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HDC,
+        BeginPaint, ClientToScreen, EndPaint, ExcludeClipRect, GetWindowDC, InvalidateRect, RedrawWindow, ReleaseDC, RDW_FRAME, RDW_INVALIDATE, SetTextColor, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HDC,
         HFONT, PAINTSTRUCT,
     },
     UI::{
@@ -18,11 +18,15 @@ use windows_sys::Win32::{
         Input::KeyboardAndMouse::{GetFocus, IsWindowEnabled, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT},
         Shell::{DefSubclassProc, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, SendMessageW, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_GETLBTEXT, CB_GETLBTEXTLEN, WM_ENABLE, WM_ERASEBKGND,
+            GetClientRect, GetWindowLongW, GetWindowRect, SendMessageW, SetWindowPos, GWL_EXSTYLE,
+            SWP_FRAMECHANGED, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WM_NCCALCSIZE, WM_NCPAINT,
+            WS_EX_CLIENTEDGE, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_GETLBTEXT, CB_GETLBTEXTLEN, WM_ENABLE, WM_ERASEBKGND,
             WM_GETFONT, WM_KILLFOCUS, WM_MOUSEMOVE, WM_NOTIFY, WM_PAINT, WM_SETFOCUS,
         },
     },
 };
+
+use std::ptr::null_mut;
 
 use crate::{
     gfx::Canvas,
@@ -104,6 +108,11 @@ pub unsafe fn theme_control(control: HWND, class: &str) {
     if class == "COMBOBOX" {
         // A caixa fechada é desenhada à mão (igual aos botões); a lista aberta segue nativa.
         SetWindowSubclass(control, Some(combo_proc), 2, 0);
+    }
+    if class == "EDIT" && GetWindowLongW(control, GWL_EXSTYLE) as u32 & WS_EX_CLIENTEDGE != 0 {
+        // Campo de uma linha: a borda 3D do Windows vira um cartão arredondado.
+        SetWindowSubclass(control, Some(edit_proc), 3, 0);
+        SetWindowPos(control, null_mut(), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
     if !theme::is_dark() {
         return;
@@ -241,4 +250,58 @@ unsafe fn paint_combo(hwnd: HWND, dc: HDC) {
         c.fill(ax + 2 * aw - i, ay + dy - stroke / 2, stroke, stroke, arrow);
     }
     c.blit(dc, 0, 0);
+}
+/// Campo de texto no estilo do app: margem por dentro e moldura arredondada pintada
+/// na área não cliente (o texto e o cursor continuam nativos).
+unsafe extern "system" fn edit_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+    match msg {
+        WM_NCCALCSIZE => {
+            let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+            let r = &mut *(lp as *mut RECT);
+            let (h, v) = (6 * dpi / 96, ((r.bottom - r.top) - 20 * dpi / 96).max(2) / 2);
+            r.left += h;
+            r.right -= h;
+            r.top += v;
+            r.bottom -= v;
+            return 0;
+        }
+        WM_NCPAINT => {
+            paint_edit_frame(hwnd);
+            return 0;
+        }
+        WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE => {
+            let r = DefSubclassProc(hwnd, msg, wp, lp);
+            RedrawWindow(hwnd, std::ptr::null(), null_mut(), RDW_FRAME | RDW_INVALIDATE);
+            return r;
+        }
+        _ => {}
+    }
+    DefSubclassProc(hwnd, msg, wp, lp)
+}
+
+unsafe fn paint_edit_frame(hwnd: HWND) {
+    let (mut win, mut client): (RECT, RECT) = (std::mem::zeroed(), std::mem::zeroed());
+    GetWindowRect(hwnd, &mut win);
+    GetClientRect(hwnd, &mut client);
+    let mut origin = POINT { x: 0, y: 0 };
+    ClientToScreen(hwnd, &mut origin);
+    let (w, h) = ((win.right - win.left).max(1), (win.bottom - win.top).max(1));
+    let (cx, cy) = (origin.x - win.left, origin.y - win.top);
+    let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+    let enabled = IsWindowEnabled(hwnd) != 0;
+    let focused = GetFocus() == hwnd;
+    // Sem realce ao passar o mouse: rastrear a saída do mouse num campo com moldura
+    // própria gerava um laço de mensagens que deixava outros controles sem pintar.
+    let border = if enabled && focused { theme::accent() } else { theme::border() };
+    let mut c = Canvas::new(w, h);
+    c.fill(0, 0, w, h, argb(theme::card()));
+    c.card((0, 0, w, h), 7 * dpi / 96, argb(theme::card()), argb(border));
+    if focused {
+        // Sublinhado laranja de 2 px, como nos campos do Windows 11.
+        c.round_rect(7 * dpi / 96, h - 2, w - 14 * dpi / 96, 2, 1, argb(theme::accent()));
+    }
+    let dc = GetWindowDC(hwnd);
+    ExcludeClipRect(dc, cx, cy, cx + client.right, cy + client.bottom);
+    c.blit(dc, 0, 0);
+    ReleaseDC(hwnd, dc);
 }
