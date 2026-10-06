@@ -1,7 +1,7 @@
-//! Sprites em ASCII: cada frame é uma grade 16×16 (ou 32×32, com `size 32`) de
-//! caracteres, onde `.` é transparente e as demais letras são cores da paleta.
+//! Sprites em ASCII: cada frame Ã© uma grade 16Ã—16 (ou 32Ã—32, com `size 32`) de
+//! caracteres, onde `.` Ã© transparente e as demais letras sÃ£o cores da paleta.
 
-/// Tamanho padrão (e o do criador de mascotes).
+/// Tamanho padrÃ£o (e o do criador de mascotes).
 pub const SPRITE: usize = 16;
 pub const PIXELS: usize = SPRITE * SPRITE;
 /// Sprites maiores, para mais detalhe (aparecem do mesmo tamanho na tela).
@@ -9,7 +9,7 @@ pub const SPRITE_HD: usize = 32;
 
 pub const PROPS: &str = include_str!("../assets/props.txt");
 
-/// Limites para arquivos de mods: nomes vão para menus, `about` vai para a IA.
+/// Limites para arquivos de mods: nomes vÃ£o para menus, `about` vai para a IA.
 const MAX_NAME: usize = 32;
 const MAX_ABOUT: usize = 200;
 const MAX_FRAMES: usize = 64;
@@ -19,16 +19,16 @@ pub fn clean_name(name: &str) -> String {
     crate::win::clean_line(name, MAX_NAME)
 }
 
-/// Folha de sprites genérica: frames com nome, em qualquer quantidade.
+/// Folha de sprites genÃ©rica: frames com nome, em qualquer quantidade.
 pub struct Sheet {
     pub name: Option<String>,
-    /// Quem ele é, em uma frase (vira a personalidade na conversa).
+    /// Quem ele Ã©, em uma frase (vira a personalidade na conversa).
     pub about: Option<String>,
-    /// "a" para mascotes femininas (falas no feminino); "o" por padrão.
+    /// "a" para mascotes femininas (falas no feminino); "o" por padrÃ£o.
     pub article: Option<String>,
     /// Lado da grade: 16 ou 32.
     pub size: usize,
-    /// Cor BGRA (alpha pré-multiplicado) indexada pelo caractere ASCII; 0 = transparente.
+    /// Cor BGRA (alpha prÃ©-multiplicado) indexada pelo caractere ASCII; 0 = transparente.
     colors: [u32; 128],
     names: Vec<String>,
     frames: Vec<Vec<u8>>,
@@ -76,7 +76,7 @@ impl Sheet {
                 (Some("color"), Some(key), Some(hex), None) => {
                     let key = match key.as_bytes() {
                         [b] if b.is_ascii_graphic() && *b != b'.' && *b != b'#' => *b,
-                        _ => return Err(format!("linha {n}: cor inválida '{key}'")),
+                        _ => return Err(format!("linha {n}: cor invÃ¡lida '{key}'")),
                     };
                     let hex = hex.trim_start_matches('#');
                     let rgb = u32::from_str_radix(hex, 16)
@@ -108,7 +108,7 @@ impl Sheet {
                                 continue;
                             }
                             if b >= 128 || sheet.colors[b as usize] == 0 {
-                                return Err(format!("linha {rn}: cor '{}' não definida", b as char));
+                                return Err(format!("linha {rn}: cor '{}' nÃ£o definida", b as char));
                             }
                             px[row * size + col] = b;
                         }
@@ -116,7 +116,7 @@ impl Sheet {
                     sheet.names.push(name.to_string());
                     sheet.frames.push(px);
                 }
-                _ => return Err(format!("linha {n}: não entendi '{line}'")),
+                _ => return Err(format!("linha {n}: nÃ£o entendi '{line}'")),
             }
         }
         Ok(sheet)
@@ -152,7 +152,7 @@ impl Sheet {
         }
     }
 
-    /// Redimensiona um frame para `size`×`size` (ícone da bandeja, petisco de sprite grande).
+    /// Redimensiona um frame para `size`Ã—`size` (Ã­cone da bandeja, petisco de sprite grande).
     pub fn draw_fit(&self, index: usize, size: usize) -> Vec<u32> {
         let (px, grid) = (&self.frames[index], self.size);
         (0..size * size)
@@ -206,7 +206,7 @@ const FRAMES: [(&str, Option<Frame>); 17] = [
     ("look", Some(Frame::Walk1)),
 ];
 
-/// A arte de um mascote: a folha + o índice de cada `Frame` nela.
+/// A arte de um mascote: a folha + o Ã­ndice de cada `Frame` nela.
 pub struct Art {
     pub name: String,
     pub sheet: Sheet,
@@ -244,13 +244,13 @@ impl Art {
         self.sheet.size
     }
 
-    /// Escala de desenho que ocupa na tela o mesmo que um sprite 16×16 com `scale`.
+    /// Escala de desenho que ocupa na tela o mesmo que um sprite 16Ã—16 com `scale`.
     pub fn scale_for(&self, scale: i32) -> i32 {
         let size = self.size() as i32;
         ((scale * SPRITE as i32 + size / 2) / size).max(1)
     }
 
-    /// Um frame em tamanho real (1 pixel por pixel), para prévias.
+    /// Um frame em tamanho real (1 pixel por pixel), para prÃ©vias.
     pub fn pixels(&self, frame: Frame) -> Vec<u32> {
         let mut out = vec![0; self.size() * self.size()];
         self.draw(frame, false, 1, &mut out);
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn optional_frames_fall_back() {
-        // Um mod antigo, só com os frames obrigatórios.
+        // Um mod antigo, sÃ³ com os frames obrigatÃ³rios.
         let src = EMBEDDED[0].1;
         let mut kept = String::new();
         let mut skip = false;
@@ -318,7 +318,10 @@ mod tests {
 
     #[test]
     fn reports_wrong_width() {
-        let src = EMBEDDED[0].1.replacen("..kkkkkkkkkkkk..", "..kkkkkkkkkkkk.", 1);
+        // Tira um caractere da primeira linha do primeiro frame.
+        let src = EMBEDDED[0].1;
+        let at = src.find("frame idle\n").unwrap() + "frame idle\n".len();
+        let src = format!("{}{}", &src[..at], &src[at + 1..]);
         assert!(Sheet::parse(&src).err().unwrap().contains("colunas"));
     }
 
@@ -350,12 +353,13 @@ size 32").is_err());
     #[test]
     fn flip_mirrors_pixels() {
         let sheet = Sheet::parse(EMBEDDED[0].1).unwrap();
-        let (mut a, mut b) = (vec![0; PIXELS], vec![0; PIXELS]);
+        let n = sheet.size;
+        let (mut a, mut b) = (vec![0; n * n], vec![0; n * n]);
         sheet.draw(2, false, 1, &mut a);
         sheet.draw(2, true, 1, &mut b);
-        for y in 0..SPRITE {
-            for x in 0..SPRITE {
-                assert_eq!(a[y * SPRITE + x], b[y * SPRITE + SPRITE - 1 - x]);
+        for y in 0..n {
+            for x in 0..n {
+                assert_eq!(a[y * n + x], b[y * n + n - 1 - x]);
             }
         }
     }

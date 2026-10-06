@@ -134,6 +134,7 @@ fn idle_sprite(src: &str) -> (u32, u32, Vec<[u8; 4]>) {
     let mut colors = [[0u8; 4]; 128];
     let mut rows = Vec::new();
     let mut in_idle = false;
+    let mut n = 16;
     for line in src.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
         let words: Vec<&str> = line.split_whitespace().collect();
         match words.as_slice() {
@@ -141,17 +142,18 @@ fn idle_sprite(src: &str) -> (u32, u32, Vec<[u8; 4]>) {
                 let v = u32::from_str_radix(hex, 16).unwrap();
                 colors[key.as_bytes()[0] as usize] = [(v >> 16) as u8, (v >> 8) as u8, v as u8, 255];
             }
+            ["size", v] => n = v.parse().unwrap(),
             ["frame", name] => in_idle = *name == "idle",
-            _ if in_idle && rows.len() < 16 => rows.push(line.as_bytes().to_vec()),
+            _ if in_idle && rows.len() < n => rows.push(line.as_bytes().to_vec()),
             _ => {}
         }
     }
     // Recorta as linhas/colunas vazias para o bicho ocupar o ícone todo.
     let used = |x: usize, y: usize| rows[y][x] != b'.';
-    let top = (0..16).find(|&y| (0..16).any(|x| used(x, y))).unwrap();
-    let bottom = (0..16).rev().find(|&y| (0..16).any(|x| used(x, y))).unwrap();
-    let left = (0..16).find(|&x| (0..16).any(|y| used(x, y))).unwrap();
-    let right = (0..16).rev().find(|&x| (0..16).any(|y| used(x, y))).unwrap();
+    let top = (0..n).find(|&y| (0..n).any(|x| used(x, y))).unwrap();
+    let bottom = (0..n).rev().find(|&y| (0..n).any(|x| used(x, y))).unwrap();
+    let left = (0..n).find(|&x| (0..n).any(|y| used(x, y))).unwrap();
+    let right = (0..n).rev().find(|&x| (0..n).any(|y| used(x, y))).unwrap();
     let side = (bottom - top).max(right - left) + 1;
     // Centraliza num quadrado.
     let (ox, oy) = ((side - (right - left + 1)) / 2, (side - (bottom - top + 1)) / 2);
@@ -168,6 +170,16 @@ fn idle_sprite(src: &str) -> (u32, u32, Vec<[u8; 4]>) {
 
 /// Amplia por vizinho mais próximo, centralizando (pixel art fica nítida).
 fn scale_to(src: &[[u8; 4]], w: u32, h: u32, size: u32) -> Vec<[u8; 4]> {
+    if w.max(h) > size {
+        // Maior que o ícone (sprite 32×32 no ícone de 16): reduz por amostragem.
+        let side = w.max(h);
+        return (0..size * size)
+            .map(|i| {
+                let (x, y) = ((i % size) * side / size, (i / size) * side / size);
+                if x < w && y < h { src[(y * w + x) as usize] } else { [0; 4] }
+            })
+            .collect();
+    }
     let k = (size / w.max(h)).max(1);
     let (sw, sh) = (w * k, h * k);
     let (ox, oy) = ((size.saturating_sub(sw)) / 2, (size.saturating_sub(sh)) / 2);

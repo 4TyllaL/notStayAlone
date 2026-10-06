@@ -4,15 +4,23 @@
 
 use windows_sys::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
-    Graphics::Gdi::{SetTextColor, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HFONT},
+    Graphics::Gdi::{
+        BeginPaint, EndPaint, InvalidateRect, SetTextColor, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_SINGLELINE, DT_VCENTER, HDC,
+        HFONT, PAINTSTRUCT,
+    },
     UI::{
         Controls::{
             CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, DRAWITEMSTRUCT, LVM_GETHEADER, LVM_SETBKCOLOR,
             LVM_SETTEXTBKCOLOR, LVM_SETTEXTCOLOR, NMCUSTOMDRAW, NMHDR, NM_CUSTOMDRAW, ODS_DISABLED, ODS_FOCUS, ODS_NOFOCUSRECT,
-            ODS_SELECTED,
+            ODS_SELECTED, WM_MOUSELEAVE,
         },
+        HiDpi::GetDpiForWindow,
+        Input::KeyboardAndMouse::{GetFocus, IsWindowEnabled, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT},
         Shell::{DefSubclassProc, SetWindowSubclass},
-        WindowsAndMessaging::{SendMessageW, WM_NOTIFY},
+        WindowsAndMessaging::{
+            GetClientRect, SendMessageW, CB_GETCURSEL, CB_GETDROPPEDSTATE, CB_GETLBTEXT, CB_GETLBTEXTLEN, WM_ENABLE, WM_ERASEBKGND,
+            WM_GETFONT, WM_KILLFOCUS, WM_MOUSEMOVE, WM_NOTIFY, WM_PAINT, WM_SETFOCUS,
+        },
     },
 };
 
@@ -93,6 +101,10 @@ pub unsafe fn draw_toggle(di: &DRAWITEMSTRUCT, on: bool, style: &ButtonStyle) {
 
 /// Deixa um controle nativo (campo, lista, seletor) no tema atual.
 pub unsafe fn theme_control(control: HWND, class: &str) {
+    if class == "COMBOBOX" {
+        // A caixa fechada é desenhada à mão (igual aos botões); a lista aberta segue nativa.
+        SetWindowSubclass(control, Some(combo_proc), 2, 0);
+    }
     if !theme::is_dark() {
         return;
     }
@@ -154,4 +166,79 @@ pub unsafe fn allow_dark_mode(dark: bool) {
         let set: SetPreferredAppMode = std::mem::transmute::<unsafe extern "system" fn() -> isize, SetPreferredAppMode>(proc);
         set(if dark { 2 } else { 0 }); // 2 = sempre escuro, 0 = padrão
     }
+}
+
+/// Seletor fechado no estilo do app: cartão arredondado, texto do item escolhido e
+/// uma setinha; borda laranja com foco ou aberto.
+unsafe extern "system" fn combo_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, _data: usize) -> LRESULT {
+    match msg {
+        WM_PAINT => {
+            let mut ps: PAINTSTRUCT = std::mem::zeroed();
+            let dc = BeginPaint(hwnd, &mut ps);
+            paint_combo(hwnd, dc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        WM_ERASEBKGND => return 1,
+        WM_SETFOCUS | WM_KILLFOCUS | WM_ENABLE | WM_MOUSELEAVE => {
+            if msg == WM_MOUSELEAVE {
+                HOT.store(0, std::sync::atomic::Ordering::Relaxed);
+            }
+            let r = DefSubclassProc(hwnd, msg, wp, lp);
+            InvalidateRect(hwnd, std::ptr::null(), 0);
+            return r;
+        }
+        WM_MOUSEMOVE => {
+            let mut track = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+            TrackMouseEvent(&mut track);
+            if HOT.swap(hwnd as isize, std::sync::atomic::Ordering::Relaxed) != hwnd as isize {
+                InvalidateRect(hwnd, std::ptr::null(), 0);
+            }
+        }
+        _ => {}
+    }
+    DefSubclassProc(hwnd, msg, wp, lp)
+}
+
+/// O seletor com o mouse em cima (um por vez).
+static HOT: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+unsafe fn paint_combo(hwnd: HWND, dc: HDC) {
+    let mut r: RECT = std::mem::zeroed();
+    GetClientRect(hwnd, &mut r);
+    let (w, h) = (r.right.max(1), r.bottom.max(1));
+    let dpi = GetDpiForWindow(hwnd).max(96) as i32;
+    let s = |v: i32| v * dpi / 96;
+    let enabled = IsWindowEnabled(hwnd) != 0;
+    let open = SendMessageW(hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0;
+    let focused = GetFocus() == hwnd;
+    let hot = HOT.load(std::sync::atomic::Ordering::Relaxed) == hwnd as isize;
+    let mut c = Canvas::new(w, h);
+    c.fill(0, 0, w, h, argb(theme::card()));
+    let fill = if !enabled { theme::soft() } else if hot || open { theme::hover() } else { theme::soft() };
+    let border = if !enabled { theme::border() } else if focused || open { theme::accent() } else { theme::border() };
+    c.card((0, 0, w, h), s(7), argb(fill), argb(border));
+    // Texto do item escolhido.
+    let sel = SendMessageW(hwnd, CB_GETCURSEL, 0, 0);
+    let mut label = String::new();
+    if sel >= 0 {
+        let len = SendMessageW(hwnd, CB_GETLBTEXTLEN, sel as WPARAM, 0).max(0) as usize;
+        let mut buf = vec![0u16; len + 1];
+        SendMessageW(hwnd, CB_GETLBTEXT, sel as WPARAM, buf.as_mut_ptr() as LPARAM);
+        label = String::from_utf16_lossy(&buf[..len]);
+    }
+    let font = SendMessageW(hwnd, WM_GETFONT, 0, 0) as HFONT;
+    let ink = if enabled { theme::text() } else { theme::disabled() };
+    let text = RECT { left: s(10), top: 0, right: w - s(30), bottom: h };
+    c.text(font, &label, text, ink, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    // Setinha (um "v" de 2 px), virada para cima com a lista aberta.
+    let (ax, ay, aw) = (w - s(20), h / 2, s(4));
+    let stroke = s(2).max(2);
+    let arrow = argb(if enabled { theme::muted() } else { theme::disabled() });
+    for i in 0..=aw {
+        let dy = if open { aw - i } else { i } - aw / 2;
+        c.fill(ax + i, ay + dy - stroke / 2, stroke, stroke, arrow);
+        c.fill(ax + 2 * aw - i, ay + dy - stroke / 2, stroke, stroke, arrow);
+    }
+    c.blit(dc, 0, 0);
 }
