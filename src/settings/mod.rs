@@ -100,7 +100,7 @@ const SPEEDS: [&str; 4] = ["Devagar", "Normal", "Rápido", "Muito rápido"];
 /// partir da barra lateral, y a partir do topo da janela.
 const SIDEBAR: i32 = 200;
 const CONTENT: i32 = 620;
-const HEIGHT: i32 = 704;
+const HEIGHT: i32 = 664;
 /// Margem do conteúdo (dos lados e do título) e onde começa a primeira seção.
 const MARGIN: i32 = 24;
 const TOP: i32 = 60;
@@ -108,10 +108,10 @@ const TOP: i32 = 60;
 const PAD: i32 = 16;
 const VPAD: i32 = 4;
 /// Espaço entre um cartão e o título da seção seguinte.
-const GAP: i32 = 16;
+const GAP: i32 = 12;
 /// Altura de uma linha (rótulo + controle) e de uma linha com descrição.
-const ROW: i32 = 40;
-const ROW_TALL: i32 = 48;
+const ROW: i32 = 36;
+const ROW_TALL: i32 = 44;
 /// Colunas das linhas: rótulo à esquerda, controle numa coluna fixa à direita.
 const LABEL_X: i32 = MARGIN + PAD;
 const RIGHT: i32 = CONTENT - MARGIN - PAD;
