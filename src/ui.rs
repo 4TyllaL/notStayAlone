@@ -334,7 +334,7 @@ unsafe fn paint_combo(hwnd: HWND, dc: HDC) {
     let mut c = Canvas::new(w, h);
     c.fill(0, 0, w, h, argb(theme::card()));
     // Igual aos campos de texto: superfície do cartão e contorno firme; laranja com foco.
-    let fill = if !enabled { theme::soft() } else if hot || open { theme::soft() } else { theme::card() };
+    let fill = if !enabled || hot || open { theme::soft() } else { theme::card() };
     let border = if !enabled { theme::border() } else if focused || open { theme::accent() } else { theme::field_border() };
     c.card((0, 0, w, h), s(theme::size::RADIUS), argb(fill), argb(border));
     // Texto do item escolhido.

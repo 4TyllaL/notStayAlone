@@ -479,6 +479,8 @@ struct Sheet {
     /// Retrato do mascote (o cartão da página Sobre).
     portraits: Vec<(usize, RECT)>,
     texts: Vec<Text>,
+    /// Onde termina o conteúdo de cada página (em pontos de 96 DPI); o teste confere que cabe.
+    bottoms: Vec<(usize, i32)>,
 }
 
 /// Controles fora das páginas (o cabeçalho com Salvar e Cancelar).
@@ -551,7 +553,15 @@ impl Form<'_> {
         ((r.right * 96 + dpi - 1) / dpi, (r.bottom * 96 + dpi - 1) / dpi)
     }
 
+    /// Guarda onde a página atual terminou (com o espaço de baixo do último cartão).
+    fn finish(&mut self) {
+        if self.page != GLOBAL {
+            self.st.sheet.bottoms.push((self.page, self.y));
+        }
+    }
+
     fn start(&mut self, page: usize) {
+        self.finish();
         self.page = page;
         self.y = TOP;
     }
@@ -985,6 +995,7 @@ unsafe fn build(hwnd: HWND) {
     f.close();
     f.y -= GAP - 4;
     f.note(tr("Sem telemetria: só as conexões acima usam a rede."), MARGIN + 4, CONTENT - 2 * MARGIN - 8);
+    f.finish();
 }
 
 unsafe fn add_columns(list: HWND, columns: &[(&str, i32)], dpi: u32) {
@@ -2247,5 +2258,26 @@ mod tests {
         assert_eq!(site_of("http://127.0.0.1:8080/v1"), "127.0.0.1:8080");
         assert_eq!(site_of("https://example.com"), "example.com");
         assert_eq!(site_of(""), "");
+    }
+
+    /// Abre a janela de verdade (escondida pelo destroy logo em seguida) e confere que o
+    /// conteúdo de cada página cabe na altura da janela, nos dois idiomas.
+    #[test]
+    fn every_page_fits_the_window() {
+        use crate::config::Language;
+        unsafe {
+            for language in [Language::Portuguese, Language::English] {
+                crate::lang::set(language);
+                open(null_mut(), &Config::load(), null_mut(), Page::General);
+                let hwnd = OPEN.with(Cell::get);
+                assert!(!hwnd.is_null(), "a janela de Configurações não abriu");
+                let bottoms = state(hwnd).map(|st| st.sheet.bottoms.clone()).unwrap_or_default();
+                DestroyWindow(hwnd);
+                assert_eq!(bottoms.len(), 8, "esperava o fim de cada uma das 8 páginas");
+                for (page, bottom) in bottoms {
+                    assert!(bottom <= HEIGHT, "a página {page} termina em {bottom}, mas a janela tem {HEIGHT}");
+                }
+            }
+        }
     }
 }
