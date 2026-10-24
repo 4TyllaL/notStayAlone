@@ -68,32 +68,70 @@ macro_rules! colors {
 }
 
 colors! {
-    bg: 0xF6F2EC, 0x1E1B1F;
-    sidebar: 0xFBEEDF, 0x262126;
-    card: 0xFFFFFF, 0x2A262B;
-    border: 0xE7DED3, 0x3E383E;
+    /// Fundo da janela (papel creme) e da barra lateral, um tom abaixo.
+    bg: 0xF8F4EF, 0x1B181B;
+    sidebar: 0xF1EBE3, 0x221E22;
+    /// Superfície dos cartões e dos campos.
+    card: 0xFFFFFF, 0x2A252A;
+    /// Contorno fino dos cartões.
+    border: 0xEAE2D8, 0x3A333A;
+    /// Linha entre as linhas de um cartão (mais leve que a borda).
+    divider: 0xF1EBE4, 0x332D33;
+    /// Contorno dos campos e seletores (mais firme: mostra onde clicar).
+    field_border: 0xD9CEC2, 0x4A424A;
     text: 0x2B1E2F, 0xF3ECE6;
-    muted: 0x6F6874, 0xA89FA9;
-    accent: 0xD96C1F, 0xE8823A;
-    accent_dark: 0xB85714, 0xC96A26;
-    accent_soft: 0xFCE7D5, 0x4A3326;
+    muted: 0x6B6470, 0xA89FA9;
+    /// Laranja queimado: no claro, escuro o bastante para texto branco (4,5:1).
+    accent: 0xC2560F, 0xE8823A;
+    /// Laranja apertado / com o mouse em cima.
+    accent_dark: 0xA4470B, 0xF29752;
+    accent_soft: 0xFBE9DB, 0x45301F;
     /// Fundo de botões/blocos neutros.
-    soft: 0xF3EEE7, 0x353036;
+    soft: 0xF4EFE9, 0x353036;
     /// Realce ao passar o mouse.
-    hover: 0xEAE3DA, 0x423B43;
-    heart: 0xEF476F, 0xFF5C84;
-    danger: 0xC0392B, 0xFF6B5B;
-    disabled: 0xB9B2AA, 0x6E666F;
-    /// Fundo do botão "Sair" com o mouse em cima.
-    danger_soft: 0xFBE3E0, 0x4A2A2A;
+    hover: 0xEBE4DB, 0x403940;
+    heart: 0xE8466C, 0xFF5C84;
+    danger: 0xB93A2C, 0xFF7A6B;
+    disabled: 0x9A918A, 0x7A727B;
+    /// Fundo das ações perigosas com o mouse em cima.
+    danger_soft: 0xFBE5E1, 0x4A2A2A;
     /// Trilho do interruptor desligado.
-    switch_off: 0xC9C1B8, 0x5A525B;
-    /// Anel de foco dentro dos botões laranja.
-    focus_ring: 0xF7C9A3, 0xF7C9A3;
-    /// Texto e ícones sobre o laranja.
-    on_accent: 0xFFFFFF, 0xFFFFFF;
+    switch_off: 0xC9C0B6, 0x5A525B;
+    /// Anel de foco do teclado.
+    focus_ring: 0xF2B98F, 0x9A5A2A;
+    /// Texto e ícones sobre o laranja (escuro no tema escuro: o laranja é claro).
+    on_accent: 0xFFFFFF, 0x26150A;
     /// Bolinha dos interruptores.
     knob: 0xFFFFFF, 0xF3ECE6;
+}
+
+/// Escala de tipos (px a 96 DPI) — os mesmos tamanhos em todas as janelas.
+pub mod font {
+    /// Título da página.
+    pub const DISPLAY: i32 = 22;
+    /// Título de cartão / nome do mascote.
+    pub const TITLE: i32 = 16;
+    /// Texto, rótulos e botões.
+    pub const BODY: i32 = 14;
+    /// Descrições, legendas e notas.
+    pub const SMALL: i32 = 12;
+    /// Ícones da fonte de símbolos.
+    pub const ICON: i32 = 16;
+}
+
+/// Medidas compartilhadas (px a 96 DPI): grade de 4/8, raios e alturas de controles.
+pub mod size {
+    /// Raio dos cartões e do painel.
+    pub const CARD_RADIUS: i32 = 12;
+    /// Raio de botões, campos e itens da navegação (concêntrico com o cartão).
+    pub const RADIUS: i32 = 8;
+    /// Campos, seletores e botões dentro de uma linha.
+    pub const CONTROL: i32 = 30;
+    /// Botões de ação (rodapé de cartão, cabeçalho).
+    pub const BUTTON: i32 = 32;
+    /// Interruptor.
+    pub const SWITCH_W: i32 = 40;
+    pub const SWITCH_H: i32 = 20;
 }
 
 /// 0xRRGGBB → COLORREF do GDI (0x00BBGGRR).

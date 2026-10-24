@@ -243,7 +243,7 @@ function Close-Panel($f) {
     Start-Sleep -Milliseconds 500
 }
 
-# Configurações: abre e fotografa cada página (a barra lateral tem um item a cada 44 px).
+# Configurações: abre e fotografa cada página (a barra lateral tem um item a cada 40 px).
 function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     Run-Exe "--configurar"
     $s = WaitFor "StayAloneSettings"
@@ -275,7 +275,7 @@ function Open-Approval($row) {
     $s = WaitFor "StayAloneSettings"
     if ($s -eq [IntPtr]::Zero) { return @([IntPtr]::Zero, [IntPtr]::Zero) }
     Start-Sleep -Milliseconds 800
-    $y = 191 + 44 * 4 # página Plugins
+    $y = 102 + 40 * 4 # página Plugins
     [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
     [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
     Start-Sleep -Milliseconds 700
@@ -355,7 +355,7 @@ function Check-PluginApproval {
     $s = WaitFor "StayAloneSettings"
     if ($s -eq [IntPtr]::Zero) { Check $false "Configurações abriu (plugins)"; return }
     Start-Sleep -Milliseconds 800
-    $y = 191 + 44 * 4 # página Plugins
+    $y = 102 + 40 * 4 # página Plugins
     [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
     [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
     Start-Sleep -Milliseconds 700
