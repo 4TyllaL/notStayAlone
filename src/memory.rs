@@ -20,12 +20,42 @@ pub fn path() -> Option<PathBuf> {
 }
 
 pub fn load() -> Vec<String> {
+    let (day, _, _) = unsafe { crate::system::clock() };
+    load_on((day % 100, day / 100 % 100))
+}
+
+/// Os fatos guardados que ainda valem em `today` (dia, mês).
+fn load_on(today: (u32, u32)) -> Vec<String> {
     let Some(text) = path().and_then(|p| read_file(&p)) else { return Vec::new() };
     text.lines()
         .map(|l| clean_line(l, MAX_FACT))
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && !expired(l, today))
         .take(MAX_FACTS)
         .collect()
+}
+
+/// Dia do ano (ano comum) de um (dia, mês).
+fn year_day((day, month): (u32, u32)) -> u32 {
+    const BEFORE: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    BEFORE[(month as usize).clamp(1, 12) - 1] + day
+}
+
+/// "28/09" no começo de `text` -> (28, 9).
+fn parse_dm(text: &str) -> Option<(u32, u32)> {
+    let (d, m) = text.get(..5)?.split_once('/')?;
+    let (d, m) = (d.parse().ok()?, m.parse().ok()?);
+    ((1..=31).contains(&d) && (1..=12).contains(&m)).then_some((d, m))
+}
+
+/// O fato "(28/09, domingo) [até 03/10] prova" já venceu em `today`? Sem ano: conta os dias
+/// desde o dia em que foi guardado, dando a volta no ano se for preciso.
+fn expired(line: &str, today: (u32, u32)) -> bool {
+    let Some(rest) = line.strip_prefix('(') else { return false };
+    let Some((head, body)) = rest.split_once(") ") else { return false };
+    let Some(until) = body.strip_prefix("[até ").and_then(parse_dm) else { return false };
+    let Some(saved) = parse_dm(head) else { return false };
+    let span = |from, to| (year_day(to) + 365 - year_day(from)) % 365;
+    span(saved, today) > span(saved, until)
 }
 
 fn save(facts: &[String]) {
@@ -66,11 +96,21 @@ pub fn forget_all() {
     }
 }
 
+/// O texto do fato, sem a data nem o prazo (para não repetir o mesmo fato).
+fn fact_key(line: &str) -> String {
+    let body = line.split_once(") ").map_or(line, |(_, f)| f);
+    let body = match body.strip_prefix("[até ").and_then(|b| b.split_once("] ")) {
+        Some((_, f)) => f,
+        None => body,
+    };
+    body.to_lowercase()
+}
+
 fn merge(facts: &mut Vec<String>, new: &[String], today: &str) {
     for fact in new {
         let fact = format!("({today}) {fact}");
-        let key = fact.split_once(") ").map_or(fact.as_str(), |(_, f)| f).to_lowercase();
-        facts.retain(|f| f.split_once(") ").map_or(f.as_str(), |(_, old)| old).to_lowercase() != key);
+        let key = fact_key(&fact);
+        facts.retain(|f| fact_key(f) != key);
         facts.push(fact);
     }
     let excess = facts.len().saturating_sub(MAX_FACTS);
@@ -83,17 +123,31 @@ pub fn split_reply(reply: &str) -> (String, Vec<String>) {
     let mut facts = Vec::new();
     for line in reply.lines() {
         let trimmed = line.trim();
-        match trimmed.get(..MARK.len()).filter(|head| head.eq_ignore_ascii_case(MARK)) {
-            Some(_) => {
-                let fact = clean_line(trimmed[MARK.len()..].trim(), MAX_FACT);
+        match remember_line(trimmed) {
+            Some((until, text)) => {
+                let fact = clean_line(text, MAX_FACT);
                 if !fact.is_empty() && !sensitive(&fact) {
-                    facts.push(fact);
+                    facts.push(match until {
+                        Some((d, m)) => format!("[até {d:02}/{m:02}] {fact}"),
+                        None => fact,
+                    });
                 }
             }
             None => shown.push(line),
         }
     }
     (shown.join("\n").trim().to_string(), facts)
+}
+
+/// "LEMBRAR: fato" ou "LEMBRAR(03/10): fato" -> (prazo, fato).
+fn remember_line(line: &str) -> Option<(Option<(u32, u32)>, &str)> {
+    let head = line.get(..MARK.len() - 1).filter(|h| h.eq_ignore_ascii_case("lembrar"))?;
+    let rest = &line[head.len()..];
+    if let Some(text) = rest.strip_prefix(':') {
+        return Some((None, text.trim()));
+    }
+    let (date, text) = rest.strip_prefix('(')?.split_once("):")?;
+    Some((parse_dm(date.trim()), text.trim()))
 }
 
 /// Parece senha, documento, cartão ou contato? Então não guarda.
@@ -126,7 +180,7 @@ pub fn prompt(facts: &[String], today: &str) -> String {
     let mut text = format!(
         " Hoje é {today}. Se a pessoa contar algo pessoal que valha lembrar depois (planos, gostos, \
          eventos como uma prova ou uma viagem), acrescente no fim da resposta uma linha separada \
-         começando com \"LEMBRAR:\" e o fato em poucas palavras, na terceira pessoa e com acentos. Nunca guarde \
+         começando com \"LEMBRAR:\" e o fato em poucas palavras, na terceira pessoa e com acentos.          Se ele deixa de valer numa data (uma prova, uma viagem), escreva \"LEMBRAR(DD/MM):\" com essa data. Nunca guarde \
          senhas, documentos, dados de saúde ou financeiros."
     );
     if !facts.is_empty() {
@@ -149,6 +203,34 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn deadline_is_parsed_and_kept_in_the_fact() {
+        let (shown, facts) = split_reply("Boa!
+LEMBRAR(03/10): tem prova
+LEMBRAR: gosta de gatos");
+        assert_eq!(shown, "Boa!");
+        assert_eq!(facts, vec!["[até 03/10] tem prova", "gosta de gatos"]);
+    }
+
+    #[test]
+    fn facts_expire_after_their_date_even_across_new_year() {
+        let line = "(28/09, domingo) [até 03/10] tem prova";
+        assert!(!expired(line, (3, 10)));
+        assert!(expired(line, (4, 10)));
+        assert!(expired(line, (1, 12)));
+        assert!(!expired("(28/09, domingo) gosta de gatos", (1, 12)));
+        let wrap = "(28/12, sábado) [até 02/01] viagem";
+        assert!(!expired(wrap, (1, 1)));
+        assert!(expired(wrap, (3, 1)));
+    }
+
+    #[test]
+    fn same_fact_with_a_new_deadline_replaces_the_old_one() {
+        let mut facts = vec!["(01/10) [até 03/10] tem prova".to_string()];
+        merge(&mut facts, &["[até 05/10] tem prova".to_string()], "02/10");
+        assert_eq!(facts, vec!["(02/10) [até 05/10] tem prova"]);
+    }
 
     #[test]
     fn remembered_lines_are_taken_out_of_the_bubble() {
