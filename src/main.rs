@@ -116,9 +116,6 @@ const HEAVY_QUIET_SECS: u64 = 20 * 60;
 const WM_UPDATE_CHECKED: u32 = WM_APP + 11;
 /// Versão nova baixada e conferida (`Reply` com o caminho, no `mailbox`).
 const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 12;
-/// Primeira procura por versão nova: dois minutos depois de abrir; depois, uma vez por dia.
-const UPDATE_FIRST_SECS: u64 = 120;
-const UPDATE_EVERY_SECS: u64 = 24 * 3600;
 
 /// Argumentos aceitos na linha de comando (úteis em atalhos do Windows).
 /// Outra instância repassa o índice nesta lista com `WM_REMOTE`.
@@ -370,13 +367,8 @@ struct App {
     /// Plugin que responde à conversa (nenhum = conversa desligada).
     chat_plugin: Option<Plugin>,
     notices: Vec<Notice>,
-    /// Versão nova encontrada no GitHub (o painel oferece atualizar).
-    update: Option<update::Release>,
-    /// Procurando ou baixando versão nova agora.
-    update_busy: bool,
-    update_checked: Option<u64>,
-    /// A procura em andamento foi pedida por você (responde mesmo sem novidade).
-    update_manual: bool,
+    /// Versão nova no GitHub e o andamento da procura ou do download.
+    updater: update::Updater,
     /// Programa de reunião em primeiro plano (com a opção ligada).
     meeting: bool,
     /// Uso do PC (processador e memória) e se ele está pesado.
@@ -461,10 +453,7 @@ impl App {
             hat: None,
             chat_plugin: None,
             notices: Vec::new(),
-            update: None,
-            update_busy: false,
-            update_checked: None,
-            update_manual: false,
+            updater: update::Updater::default(),
             meeting: false,
             meter: resources::Meter::default(),
             heavy_said: None,
@@ -1041,11 +1030,7 @@ impl App {
     }
 
     unsafe fn check_updates(&mut self, secs: u64) {
-        let due = match self.update_checked {
-            None => secs >= UPDATE_FIRST_SECS,
-            Some(last) => secs >= last + UPDATE_EVERY_SECS,
-        };
-        if self.config.updates && due {
+        if self.updater.due(self.config.updates, secs) {
             self.request_update_check(false);
         }
     }
@@ -1053,18 +1038,13 @@ impl App {
     /// Procura versão nova (num processo filho). `manual` = você pediu: a resposta
     /// aparece mesmo quando não há novidade ou quando falha.
     unsafe fn request_update_check(&mut self, manual: bool) {
-        self.update_manual |= manual;
-        if self.update_busy {
-            return; // já está procurando (ou baixando)
+        if self.updater.begin_check(manual, self.secs()) {
+            update::check(self.hwnd, WM_UPDATE_CHECKED);
         }
-        self.update_checked = Some(self.secs());
-        self.update_busy = true;
-        update::check(self.hwnd, WM_UPDATE_CHECKED);
     }
 
     unsafe fn on_update_checked(&mut self, reply: Reply) {
-        self.update_busy = false;
-        let manual = std::mem::take(&mut self.update_manual);
+        let manual = self.updater.end_check();
         let release = match reply.and_then(|text| update::Release::from_reply(&text).ok_or_else(|| tr("resposta inválida").to_string())) {
             Ok(release) => release,
             // Sem internet ou GitHub fora do ar: tenta de novo mais tarde, sem incomodar.
@@ -1072,19 +1052,18 @@ impl App {
             Err(_) => return,
         };
         if update::is_newer(&release.version, update::current()) {
-            if manual || self.update.as_ref() != Some(&release) {
+            if manual || self.updater.release.as_ref() != Some(&release) {
                 let text = fill(tr("Tem versão nova de mim (v{})! Abra o painel para atualizar."), &[&release.version]);
                 self.speak(Topic::App, Some(text));
             }
-            self.update = Some(release);
+            self.updater.release = Some(release);
         } else if manual {
             self.speak(Topic::App, Some(fill(tr("Você já está na versão mais nova (v{})!"), &[&update::current()])));
         }
     }
 
     unsafe fn start_update(&mut self) {
-        let Some(release) = self.update.clone().filter(|_| !self.update_busy) else { return };
-        self.update_busy = true;
+        let Some(release) = self.updater.begin_download() else { return };
         self.speak(Topic::App, Some(fill(tr("Baixando a versão {}..."), &[&release.version])));
         update::fetch(self.hwnd, WM_UPDATE_DOWNLOADED, &release);
     }
@@ -1092,15 +1071,15 @@ impl App {
     /// Versão baixada e conferida. Devolve o caminho e o texto da pergunta; quem chama pergunta
     /// *sem* segurar o `&mut App` (a caixa de mensagem processa mensagens, e o timer entraria no app).
     unsafe fn on_update_downloaded(&mut self, reply: Reply) -> Option<(String, String)> {
-        self.update_manual = false; // um pedido feito durante o download já foi respondido por ele
+        self.updater.end_download();
         match reply {
             Ok(path) => {
-                // `update_busy` segue ligado com a pergunta aberta (nada de baixar de novo).
-                let text = self.update.as_ref().map(update::confirmation).unwrap_or_default();
+                // o `Updater` segue ocupado com a pergunta aberta (nada de baixar de novo).
+                let text = self.updater.release.as_ref().map(update::confirmation).unwrap_or_default();
                 Some((path, text))
             }
             Err(e) => {
-                self.update_busy = false;
+                self.updater.finish();
                 self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e]))));
                 None
             }
@@ -1109,7 +1088,7 @@ impl App {
 
     /// Resposta da pergunta de atualização: só instala se você quis.
     unsafe fn finish_update(&mut self, path: &str, yes: bool) {
-        self.update_busy = false;
+        self.updater.finish();
         if !yes {
             update::discard(path);
             return self.speak(Topic::App, Some(tr("Tudo bem, fica para depois. O botão Atualizar continua no painel.").into()));
@@ -1708,7 +1687,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         reminders_on: app.config.companion.reminders.iter().filter(|r| r.on).count(),
         water: app.companion.stats.water,
         water_goal: app.companion.settings.water_goal,
-        update: app.update.as_ref().map(|r| r.version.clone()),
+        update: app.updater.release.as_ref().map(|r| r.version.clone()),
     };
     flyout::open(hwnd, model, cursor());
 }
