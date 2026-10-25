@@ -167,7 +167,20 @@ fn dir() -> Option<PathBuf> {
 fn write(name: &str, text: &str) {
     let Some(dir) = dir() else { return };
     let _ = fs::create_dir_all(&dir);
-    let _ = fs::write(dir.join(name), text);
+    let _ = write_atomic(&dir.join(name), text);
+}
+
+/// Grava num `.tmp` e troca pelo arquivo de verdade: se a energia cair no meio, fica o arquivo
+/// antigo inteiro em vez de um vazio (`fs::write` esvazia o destino antes de escrever).
+pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
 }
 
 fn read(name: &str) -> Option<String> {
@@ -661,5 +674,17 @@ mod tests {
         assert!(c.size == Size::Small && c.mascot == crate::pack::DEFAULT);
         assert_eq!((c.companion.reminders[0].on, c.companion.reminders[0].minutes), (false, 30));
         assert_eq!(c.companion.reminders.len(), 3);
+    }
+
+    #[test]
+    fn atomic_write_replaces_the_file_and_leaves_no_temp() {
+        let dir = std::env::temp_dir().join("stayalone-atomic-test");
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("a.ini");
+        write_atomic(&path, "um").unwrap();
+        write_atomic(&path, "dois").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "dois");
+        assert!(!dir.join("a.ini.tmp").exists());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

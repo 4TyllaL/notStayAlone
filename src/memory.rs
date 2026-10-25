@@ -38,7 +38,7 @@ fn save(facts: &[String]) {
         text += fact;
         text += "\n";
     }
-    let _ = fs::write(path, text);
+    let _ = crate::config::write_atomic(&path, &text);
 }
 
 /// Guarda os fatos novos (com a data `today`, ex.: "28/09").
@@ -99,12 +99,12 @@ pub fn split_reply(reply: &str) -> (String, Vec<String>) {
 /// Parece senha, documento, cartão ou contato? Então não guarda.
 fn sensitive(fact: &str) -> bool {
     let lower = fact.to_lowercase();
-    let words = [
-        "senha", "password", "cpf", "rg ", "cartão", "cartao", "conta bancária", "pix", "token", "chave", "credit card",
-        "bank account", "social security", "passport",
-    ];
+    // Palavras soltas (senão "pixel" casaria com "pix"); as de duas palavras valem como trecho.
+    let words = ["senha", "password", "cpf", "rg", "cartão", "cartao", "pix", "token", "chave", "passport"];
+    let phrases = ["conta bancária", "credit card", "bank account", "social security"];
+    let tokens: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).collect();
     let long_number = fact.split(|c: char| !c.is_ascii_digit()).any(|digits| digits.len() >= 6);
-    words.iter().any(|w| lower.contains(w)) || long_number || fact.contains('@')
+    words.iter().any(|w| tokens.contains(w)) || phrases.iter().any(|p| lower.contains(p)) || long_number || fact.contains('@')
 }
 
 /// Trecho do prompt com as lembranças e a instrução de marcar coisas novas.
@@ -139,6 +139,15 @@ pub fn prompt(facts: &[String], today: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sensitive_matches_whole_words_only() {
+        assert!(!super::sensitive("gosta de pixel art"));
+        assert!(!super::sensitive("comprou um chaveiro"));
+        assert!(super::sensitive("a senha é azul"));
+        assert!(super::sensitive("manda um Pix, por favor"));
+        assert!(super::sensitive("tem conta bancária no banco X"));
+    }
+
     use super::*;
 
     #[test]

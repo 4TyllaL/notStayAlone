@@ -1089,31 +1089,33 @@ impl App {
         update::fetch(self.hwnd, WM_UPDATE_DOWNLOADED, &release);
     }
 
-    unsafe fn on_update_downloaded(&mut self, reply: Reply) {
+    /// Versão baixada e conferida. Devolve o caminho e o texto da pergunta; quem chama pergunta
+    /// *sem* segurar o `&mut App` (a caixa de mensagem processa mensagens, e o timer entraria no app).
+    unsafe fn on_update_downloaded(&mut self, reply: Reply) -> Option<(String, String)> {
         self.update_manual = false; // um pedido feito durante o download já foi respondido por ele
-        let path = match reply {
-            Ok(path) => path,
+        match reply {
+            Ok(path) => {
+                // `update_busy` segue ligado com a pergunta aberta (nada de baixar de novo).
+                let text = self.update.as_ref().map(update::confirmation).unwrap_or_default();
+                Some((path, text))
+            }
             Err(e) => {
                 self.update_busy = false;
-                return self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e]))));
+                self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e]))));
+                None
             }
-        };
-        // Baixado e conferido: mostra o que foi verificado e o que mudou, e só instala se
-        // você quiser. `update_busy` segue ligado com a pergunta aberta (nada de baixar de novo).
-        let text = self.update.as_ref().map(update::confirmation).unwrap_or_default();
-        let answer = MessageBoxW(
-            self.hwnd,
-            w(&text).as_ptr(),
-            w(tr("Atualizar o !StayAlone")).as_ptr(),
-            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
-        );
+        }
+    }
+
+    /// Resposta da pergunta de atualização: só instala se você quis.
+    unsafe fn finish_update(&mut self, path: &str, yes: bool) {
         self.update_busy = false;
-        if answer != IDYES {
-            update::discard(&path);
+        if !yes {
+            update::discard(path);
             return self.speak(Topic::App, Some(tr("Tudo bem, fica para depois. O botão Atualizar continua no painel.").into()));
         }
         self.save_state();
-        match update::install(&path) {
+        match update::install(path) {
             Ok(()) => {
                 DestroyWindow(self.hwnd); // a versão nova já está abrindo
             }
@@ -1937,7 +1939,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_UPDATE_DOWNLOADED => {
             if let Some(reply) = mailbox::take::<Reply>(hwnd, msg) {
-                app.on_update_downloaded(reply);
+                if let Some((path, text)) = app.on_update_downloaded(reply) {
+                    // Sem `app` na mão enquanto a caixa está aberta: ela processa mensagens.
+                    let answer = MessageBoxW(
+                        hwnd,
+                        w(&text).as_ptr(),
+                        w(tr("Atualizar o !StayAlone")).as_ptr(),
+                        MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
+                    );
+                    if let Some(app) = app_of(hwnd) {
+                        app.finish_update(&path, answer == IDYES);
+                    }
+                }
             }
         }
         WM_PLUGIN_SAY => {
