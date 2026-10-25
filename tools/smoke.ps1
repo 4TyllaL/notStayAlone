@@ -47,6 +47,7 @@ public static class Smoke {
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")] public static extern IntPtr FindTitled(string c, string t);
     [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowTextW(IntPtr h, System.Text.StringBuilder s, int n);
@@ -139,6 +140,16 @@ function WaitFor($class, $seconds = 5) {
     [IntPtr]::Zero
 }
 function Lparam($x, $y) { [IntPtr]($y * 65536 + $x) }
+
+# Clica num item da barra lateral das Configurações. Coordenadas em pontos de 96 DPI
+# (item a cada 40, começando em 102; "Sobre" é o 7 e fica no rodapé); a janela pede pixels.
+function Click-Nav($window, $page) {
+    $dpi = [Smoke]::GetDpiForWindow($window); if ($dpi -eq 0) { $dpi = 96 }
+    $y = if ($page -eq 7) { 630 } else { 102 + 40 * $page }
+    $at = Lparam ([int](100 * $dpi / 96)) ([int]($y * $dpi / 96))
+    [Smoke]::PostMessageW($window, 0x0201, [IntPtr]1, $at) | Out-Null
+    [Smoke]::PostMessageW($window, 0x0202, [IntPtr]0, $at) | Out-Null
+}
 function Bubble-Text {
     $b = Find "StayAloneBubble"
     if ($b -ne [IntPtr]::Zero -and [Smoke]::IsWindowVisible($b)) { [Smoke]::Text($b) } else { $null }
@@ -243,7 +254,7 @@ function Close-Panel($f) {
     Start-Sleep -Milliseconds 500
 }
 
-# Configurações: abre e fotografa cada página (a barra lateral tem um item a cada 40 px).
+# Configurações: abre e fotografa cada página (a barra lateral tem um item a cada 40 pontos).
 function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     Run-Exe "--configurar"
     $s = WaitFor "StayAloneSettings"
@@ -251,10 +262,7 @@ function Shoot-Settings($prefix, $pages, [switch]$ForDocs) {
     if ($s -eq [IntPtr]::Zero) { return }
     Start-Sleep -Milliseconds 800
     foreach ($page in $pages.GetEnumerator()) {
-        # Páginas da navegação a cada 44 px; "Sobre" (7) fica no rodapé da barra lateral.
-        $y = if ($page.Key -eq 7) { 656 } else { 191 + 44 * $page.Key }
-        [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
-        [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
+        Click-Nav $s $page.Key
         Start-Sleep -Milliseconds 700
         Save ([Smoke]::Print($s)) "$prefix$($page.Value)" -ForDocs:$ForDocs
     }
@@ -275,9 +283,7 @@ function Open-Approval($row) {
     $s = WaitFor "StayAloneSettings"
     if ($s -eq [IntPtr]::Zero) { return @([IntPtr]::Zero, [IntPtr]::Zero) }
     Start-Sleep -Milliseconds 800
-    $y = 102 + 40 * 4 # página Plugins
-    [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
-    [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
+    Click-Nav $s 4 # página Plugins
     Start-Sleep -Milliseconds 700
     $list = [Smoke]::GetDlgItem($s, 160)
     $ly = 36 + 24 * $row
@@ -355,9 +361,7 @@ function Check-PluginApproval {
     $s = WaitFor "StayAloneSettings"
     if ($s -eq [IntPtr]::Zero) { Check $false "Configurações abriu (plugins)"; return }
     Start-Sleep -Milliseconds 800
-    $y = 102 + 40 * 4 # página Plugins
-    [Smoke]::PostMessageW($s, 0x0201, [IntPtr]1, (Lparam 100 $y)) | Out-Null
-    [Smoke]::PostMessageW($s, 0x0202, [IntPtr]0, (Lparam 100 $y)) | Out-Null
+    Click-Nav $s 4 # página Plugins
     Start-Sleep -Milliseconds 700
     $list = [Smoke]::GetDlgItem($s, 160)
     # Caixinha da 2ª linha (a 1ª é a conversa nativa, que não pergunta nada).
