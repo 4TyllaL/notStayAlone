@@ -52,6 +52,49 @@ thread_local! {
 /// Um trecho da conversa: (é você?, texto).
 pub type Turn = (bool, String);
 
+/// A conversa em andamento: histórico recente, se há resposta a caminho e o plugin que responde.
+#[derive(Default)]
+pub struct Session {
+    history: Vec<Turn>,
+    busy: bool,
+    /// Plugin que responde à conversa (nenhum = conversa desligada).
+    pub plugin: Option<crate::plugins::Plugin>,
+}
+
+impl Session {
+    /// Outro mascote ou outro idioma: a conversa recomeça.
+    pub fn reset(&mut self) {
+        self.history.clear();
+    }
+
+    pub fn is_busy(&self) -> bool {
+        self.busy
+    }
+
+    pub fn history(&self) -> &[Turn] {
+        &self.history
+    }
+
+    /// Você perguntou: guarda (só as últimas `HISTORY`) e fica esperando a resposta.
+    pub fn ask(&mut self, text: String) {
+        self.history.push((true, text));
+        let excess = self.history.len().saturating_sub(HISTORY);
+        self.history.drain(..excess);
+        self.busy = true;
+    }
+
+    pub fn answered(&mut self, text: String) {
+        self.busy = false;
+        self.history.push((false, text));
+    }
+
+    /// A pergunta ficou sem resposta: sai do histórico.
+    pub fn failed(&mut self) {
+        self.busy = false;
+        self.history.pop();
+    }
+}
+
 pub fn system_prompt(name: &str, about: &str, female: bool) -> String {
     if lang::is_english() {
         return format!(
@@ -418,5 +461,22 @@ mod tests {
         assert!(cut.chars().count() <= MAX_REPLY + 1);
         assert!(!cut.contains("  "));
         assert_eq!(shorten("  curta\n  "), "curta");
+    }
+
+    #[test]
+    fn session_keeps_the_last_turns_and_drops_unanswered_questions() {
+        let mut c = Session::default();
+        for i in 0..HISTORY + 3 {
+            c.ask(format!("p{i}"));
+            assert!(c.is_busy());
+            c.answered(format!("r{i}"));
+            assert!(!c.is_busy());
+        }
+        assert_eq!(c.history().len(), HISTORY + 1); // o corte é na pergunta; a resposta entra depois
+        c.ask("sem resposta".into());
+        c.failed();
+        assert!(!c.is_busy() && c.history().last().unwrap().1 != "sem resposta");
+        c.reset();
+        assert!(c.history().is_empty());
     }
 }

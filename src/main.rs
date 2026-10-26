@@ -361,11 +361,8 @@ struct App {
     hat: Option<accessory::Hat>,
     hearts: u32,
     taskbar_created: u32,
-    /// Conversa com a IA: histórico recente e se há resposta a caminho.
-    chat_history: Vec<chat::Turn>,
-    chat_busy: bool,
-    /// Plugin que responde à conversa (nenhum = conversa desligada).
-    chat_plugin: Option<Plugin>,
+    /// Conversa com a IA.
+    chat: chat::Session,
     notices: Vec<Notice>,
     /// Versão nova no GitHub e o andamento da procura ou do download.
     updater: update::Updater,
@@ -447,11 +444,9 @@ impl App {
             pending: Some((Companion::greeting(hour), None)), // diz oi assim que pousar
             hearts: 0,
             taskbar_created: 0,
-            chat_history: Vec::new(),
-            chat_busy: false,
+            chat: chat::Session::default(),
             guide: None,
             hat: None,
-            chat_plugin: None,
             notices: Vec::new(),
             updater: update::Updater::default(),
             meeting: false,
@@ -852,7 +847,7 @@ impl App {
         }
         self.present();
         self.present_toy();
-        self.chat_history.clear(); // outro mascote, outra conversa
+        self.chat.reset(); // outro mascote, outra conversa
         self.say(Topic::Hello);
     }
 
@@ -862,7 +857,7 @@ impl App {
         if let Ok((_, _, phrases)) = load_mascot(&self.config.mascot, &self.base_phrases) {
             self.phrases = phrases;
         }
-        self.chat_history.clear(); // a conversa recomeça no idioma novo
+        self.chat.reset(); // a conversa recomeça no idioma novo
     }
 
     /// Acessório de época: confere a data (e o seu aniversário) e redesenha se mudou.
@@ -913,30 +908,26 @@ impl App {
 
     /// Você mandou uma mensagem na caixinha.
     unsafe fn on_chat_send(&mut self, text: String) {
-        if self.chat_busy {
+        if self.chat.is_busy() {
             return; // uma pergunta de cada vez
         }
-        let Some(plugin) = self.chat_plugin.clone() else {
+        let Some(plugin) = self.chat.plugin.clone() else {
             let tip = tr("Para conversar comigo, ligue um plugin de conversa em Configurações → Plugins.");
             return self.speak(Topic::Chat, Some(tip.into()));
         };
-        self.chat_history.push((true, text));
-        let excess = self.chat_history.len().saturating_sub(chat::HISTORY);
-        self.chat_history.drain(..excess);
+        self.chat.ask(text);
         let about = self.art.sheet.about.as_deref().unwrap_or(tr("um mascote fofinho"));
         let mut system = chat::system_prompt(&self.art.name, about, self.art.female());
         if self.config.memory {
             system += &memory::prompt(&memory::load(), &today());
         }
-        let payload = chat::payload(&system, &self.chat_history, None);
-        self.chat_busy = true;
+        let payload = chat::payload(&system, self.chat.history(), None);
         self.speak(Topic::Chat, Some("...".into())); // pensando
         let approved = plugin.approved(&self.config.plugins);
         plugins::request(self.hwnd, WM_CHAT_REPLY, &plugin, approved, payload, |reply| reply);
     }
 
     unsafe fn on_chat_reply(&mut self, reply: Reply) {
-        self.chat_busy = false;
         match reply {
             Ok(text) => {
                 // A linha "LEMBRAR: ..." vai para a memória, não para o balão.
@@ -945,11 +936,11 @@ impl App {
                     memory::remember(&facts, &today());
                 }
                 let text = if shown.is_empty() { tr("Anotado!").to_string() } else { chat::shorten(&shown) };
-                self.chat_history.push((false, text.clone()));
+                self.chat.answered(text.clone());
                 self.speak(Topic::Chat, Some(text));
             }
             Err(e) => {
-                self.chat_history.pop(); // a pergunta ficou sem resposta
+                self.chat.failed();
                 self.speak(Topic::Chat, Some(chat::shorten(&fill(tr("Hmm, não consegui responder: {}"), &[&e]))));
             }
         }
@@ -962,7 +953,7 @@ impl App {
         let enabled = &self.config.plugins;
         let on = |p: &Plugin| enabled.iter().any(|e| e.id == p.id) && p.program.is_file();
         let all: Vec<Plugin> = plugins::list().into_iter().filter(on).collect();
-        self.chat_plugin = all.iter().find(|p| p.kind == PluginKind::Chat).cloned();
+        self.chat.plugin = all.iter().find(|p| p.kind == PluginKind::Chat).cloned();
         let first = self.secs() + NOTICE_FIRST_SECS;
         let old = std::mem::take(&mut self.notices);
         self.notices = all
@@ -1764,7 +1755,7 @@ unsafe fn run_action(hwnd: HWND, action: Action) {
         Action::Ball if ball_out => app.remove_toy(),
         Action::Ball => app.spawn_toy(Kind::Ball),
         // Sem plugin de conversa ligado: leva direto para onde se liga um.
-        Action::Chat if app.chat_plugin.is_none() => settings::open(hwnd, &app.config, app.app_icon, Page::Plugins),
+        Action::Chat if app.chat.plugin.is_none() => settings::open(hwnd, &app.config, app.app_icon, Page::Plugins),
         Action::Chat => app.open_chat(),
         Action::Mascot(i) => {
             if let Some(info) = pack::list().get(i) {
