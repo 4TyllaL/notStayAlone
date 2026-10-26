@@ -680,6 +680,7 @@ impl App {
             secs: self.secs(),
             day,
             hour,
+            minute: system::minute(),
             idle_secs: idle_secs(),
             hidden: self.user_hidden,
             busy: self.busy_hidden || self.meeting,

@@ -10,7 +10,7 @@ pub(super) unsafe fn fill_list(hwnd: HWND, select: Option<usize>) {
     st.loading = true;
     SendMessageW(list, LVM_DELETEALLITEMS, 0, 0);
     for (i, r) in st.draft.companion.reminders.iter().enumerate() {
-        insert_row(list, i, &[r.kind.label(), &format!("{} min", r.minutes)]);
+        insert_row(list, i, &[r.kind.label(), &r.schedule_label()]);
         set_checked(list, i, r.on);
     }
     if let Some(i) = select {
@@ -40,7 +40,8 @@ pub(super) unsafe fn show_selection(hwnd: HWND, index: Option<usize>) {
     let custom = reminder.is_some_and(|r| matches!(r.kind, ReminderKind::Custom(_)));
     if let Some(r) = reminder {
         set_text(hwnd, IDC_TEXT, r.kind.label());
-        set_text(hwnd, IDC_MINUTES, &r.minutes.to_string());
+        let when = r.at.map_or_else(|| r.minutes.to_string(), crate::companion::format_time);
+        set_text(hwnd, IDC_MINUTES, &when);
     }
     // O texto dos lembretes embutidos vem das falas do mascote: só o intervalo muda.
     EnableWindow(item(hwnd, IDC_TEXT), (reminder.is_none() || custom) as BOOL);
@@ -58,12 +59,26 @@ pub(super) unsafe fn number(hwnd: HWND, id: i32, range: std::ops::RangeInclusive
     value
 }
 
+/// Lê o campo "quando": minutos ("30") ou um horário fixo ("14:30"). Avisa se não entender.
+unsafe fn read_when(hwnd: HWND) -> Option<(u32, Option<u32>)> {
+    let text = text_of(item(hwnd, IDC_MINUTES));
+    let parsed = match crate::companion::parse_time(&text) {
+        Some(at) => Some((30, Some(at))),
+        None => text.trim().parse::<u32>().ok().filter(|m| (1..=1440).contains(m)).map(|m| (m, None)),
+    };
+    if parsed.is_none() {
+        info(hwnd, tr("Quando: use minutos (1 a 1440) ou um horário como 14:30."));
+        SetFocus(item(hwnd, IDC_MINUTES));
+    }
+    parsed
+}
+
 pub(super) unsafe fn on_reminder_command(hwnd: HWND, id: i32) {
     let Some(st) = state(hwnd) else { return };
     match id {
         IDC_ADD | IDC_UPDATE => {
             let editing = if id == IDC_UPDATE { selected(hwnd) } else { None };
-            let Some(minutes) = number(hwnd, IDC_MINUTES, 1..=1440, tr("Intervalo")) else { return };
+            let Some((minutes, at)) = read_when(hwnd) else { return };
             let text = text_of(item(hwnd, IDC_TEXT));
             let builtin = editing.is_some_and(|i| !matches!(st.draft.companion.reminders[i].kind, ReminderKind::Custom(_)));
             if text.is_empty() && !builtin {
@@ -71,10 +86,16 @@ pub(super) unsafe fn on_reminder_command(hwnd: HWND, id: i32) {
                 SetFocus(item(hwnd, IDC_TEXT));
                 return;
             }
+            if builtin && at.is_some() {
+                info(hwnd, tr("Só os seus lembretes podem ter horário fixo."));
+                SetFocus(item(hwnd, IDC_MINUTES));
+                return;
+            }
             let reminders = &mut st.draft.companion.reminders;
             let index = match editing {
                 Some(i) => {
                     reminders[i].minutes = minutes;
+                    reminders[i].at = at;
                     if !builtin {
                         reminders[i].kind = ReminderKind::Custom(text);
                     }
@@ -84,7 +105,7 @@ pub(super) unsafe fn on_reminder_command(hwnd: HWND, id: i32) {
                     if reminders.len() >= ReminderKind::BUILT_IN.len() + MAX_REMINDERS {
                         return info(hwnd, &fill(tr("Dá para ter até {} lembretes seus."), &[&MAX_REMINDERS]));
                     }
-                    reminders.push(Reminder { on: true, minutes, kind: ReminderKind::Custom(text) });
+                    reminders.push(Reminder { on: true, minutes, kind: ReminderKind::Custom(text), at });
                     set_text(hwnd, IDC_TEXT, "");
                     reminders.len() - 1
                 }

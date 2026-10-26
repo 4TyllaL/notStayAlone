@@ -173,6 +173,7 @@ const IDC_WATER_GOAL: i32 = 116;
 const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
 const IDC_FOCUS_QUIET: i32 = 119;
+const IDC_SUMMARY: i32 = 185;
 const IDC_HOTKEY: i32 = 134;
 const IDC_ACCESSORIES: i32 = 138;
 const IDC_MASCOT: i32 = 101;
@@ -767,7 +768,7 @@ unsafe fn build(hwnd: HWND) {
     // --- Lembretes
     f.start(Page::Reminders as usize);
     f.section(tr("Seus lembretes"), Some(tr("Marque para ativar. Eles contam só o tempo em que você está usando o PC.")));
-    f.list(IDC_LIST, 176, true, &[(tr("Lembrete"), 0), (tr("A cada"), 96)]);
+    f.list(IDC_LIST, 176, true, &[(tr("Lembrete"), 0), (tr("Quando"), 96)]);
     // Editar: texto e intervalo numa linha, as ações embaixo (a principal na ponta).
     let top = f.row(ROW);
     let y = top + (ROW - CONTROL) / 2 + 4;
@@ -775,10 +776,11 @@ unsafe fn build(hwnd: HWND) {
     let text = f.field(edit, (x, y, 260), IDC_TEXT);
     SendMessageW(text, EM_SETCUEBANNER, 1, w(tr("Ex.: Conferir o e-mail")).as_ptr() as LPARAM);
     limit(text, MAX_REMINDER_TEXT);
-    let x = f.unit(tr("a cada"), x + 260 + 12, y) + 8;
-    let minutes = f.field(number, (x, y, 56), IDC_MINUTES);
+    let x = f.unit(tr("quando"), x + 260 + 12, y) + 8;
+    let minutes = f.field(edit, (x, y, 56), IDC_MINUTES);
     SetWindowTextW(minutes, w("30").as_ptr());
-    f.unit("min", x + 64, y);
+    limit(minutes, 5);
+    f.unit(tr("min ou 14:30"), x + 64, y);
     // Sem linha entre os campos e os botões: são uma coisa só.
     f.y += 4;
     let y = f.y;
@@ -798,6 +800,10 @@ unsafe fn build(hwnd: HWND) {
     limit(pause, 2);
     f.unit("min", x + 64, y);
     f.toggle(IDC_FOCUS_QUIET, tr("Durante o foco, os lembretes esperam a pausa"), None);
+    let y = f.labeled(tr("Resumo do dia"), None);
+    let summary = f.field(number, (VALUE_X, y, 56), IDC_SUMMARY);
+    limit(summary, 2);
+    f.unit(tr("h (fim do expediente)"), VALUE_X + 64, y);
     f.close();
 
     // --- Conversa
@@ -1122,9 +1128,13 @@ unsafe fn on_ok(hwnd: HWND) {
     let Some(pause) = number(hwnd, IDC_BREAK, 1..=60, tr("Pausa do foco")) else {
         return show_page(hwnd, Page::Reminders as usize);
     };
+    let Some(summary) = number(hwnd, IDC_SUMMARY, 0..=23, tr("Resumo do dia")) else {
+        return show_page(hwnd, Page::Reminders as usize);
+    };
     if !save_chat(hwnd) {
         return;
     }
+    st.draft.companion.summary_hour = summary;
     st.draft.companion.water_goal = water_goal;
     st.draft.companion.focus_minutes = focus;
     st.draft.companion.break_minutes = pause;

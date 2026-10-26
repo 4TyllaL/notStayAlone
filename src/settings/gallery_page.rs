@@ -93,6 +93,7 @@ pub(super) unsafe fn populate(hwnd: HWND) {
     set_text(hwnd, IDC_WATER_GOAL, &st.draft.companion.water_goal.to_string());
     set_text(hwnd, IDC_FOCUS, &st.draft.companion.focus_minutes.to_string());
     set_text(hwnd, IDC_BREAK, &st.draft.companion.break_minutes.to_string());
+    set_text(hwnd, IDC_SUMMARY, &st.draft.companion.summary_hour.to_string());
     let buddies: Vec<String> = std::iter::once(tr("Nenhum").to_string()).chain(st.packs.iter().map(|p| p.name.clone())).collect();
     let buddy = st.packs.iter().position(|p| p.id == st.draft.buddy).map_or(0, |i| i + 1);
     fill_combo(hwnd, IDC_BUDDY, &buddies, buddy);

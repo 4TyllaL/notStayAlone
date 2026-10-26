@@ -284,6 +284,7 @@ impl Config {
                 "water_goal" => config.companion.water_goal = number.unwrap_or(8).min(30),
                 "focus_minutes" => config.companion.focus_minutes = number.unwrap_or(25).clamp(1, 180),
                 "break_minutes" => config.companion.break_minutes = number.unwrap_or(5).clamp(1, 60),
+                "summary_hour" => config.companion.summary_hour = number.unwrap_or(18).min(23),
                 "focus_quiet" => config.companion.focus_holds_reminders = value != "off",
                 "chat_hotkey" => config.chat_hotkey = value != "off",
                 "accessories" => config.accessories = value != "off",
@@ -292,16 +293,19 @@ impl Config {
                 // reminder=on|30|Conferir o e-mail
                 "reminder" => {
                     let mut parts = value.splitn(3, '|');
-                    if let (Some(on), Some(Ok(minutes)), Some(text)) =
-                        (parts.next(), parts.next().map(|m| m.trim().parse::<u32>()), parts.next())
-                    {
+                    if let (Some(on), Some(when), Some(text)) = (parts.next(), parts.next(), parts.next()) {
+                        // "30" = a cada 30 min; "@14:30" = todo dia nesse horário
+                        let when = when.trim();
+                        let at = when.strip_prefix('@').and_then(crate::companion::parse_time);
+                        let minutes = if at.is_some() { Some(30) } else { when.parse::<u32>().ok() };
                         let text = clean_line(text, MAX_REMINDER_TEXT);
                         let custom = config.companion.reminders.len() - ReminderKind::BUILT_IN.len();
-                        if !text.is_empty() && custom < MAX_REMINDERS {
+                        if let (Some(minutes), false, true) = (minutes, text.is_empty(), custom < MAX_REMINDERS) {
                             config.companion.reminders.push(Reminder {
                                 on: on.trim() == "on",
                                 minutes: minutes.clamp(1, 24 * 60),
                                 kind: ReminderKind::Custom(text),
+                                at,
                             });
                         }
                     }
@@ -345,10 +349,14 @@ impl Config {
         for (name, r) in REMINDER_KEYS.iter().zip(&self.companion.reminders) {
             text += &format!("{name}={}\n{name}_minutes={}\n", on(r), r.minutes);
         }
-        text += "# lembretes seus: reminder=on|minutos|texto\n";
+        text += "# lembretes seus: reminder=on|minutos|texto  ou  reminder=on|@HH:MM|texto (todo dia nesse horário)\n";
         for r in &self.companion.reminders {
             if let ReminderKind::Custom(label) = &r.kind {
-                text += &format!("reminder={}|{}|{}\n", on(r), r.minutes, clean_line(label, MAX_REMINDER_TEXT));
+                let when = match r.at {
+                    Some(at) => format!("@{}", crate::companion::format_time(at)),
+                    None => r.minutes.to_string(),
+                };
+                text += &format!("reminder={}|{when}|{}\n", on(r), clean_line(label, MAX_REMINDER_TEXT));
             }
         }
         let on_off = |on: bool| if on { "on" } else { "off" };
@@ -380,7 +388,9 @@ impl Config {
              # ficar agitado com o PC pesado: off | low | normal | high\n\
              pc_mood={}\n\
              # com o PC pesado, sugerir o que fechar (sempre pergunta antes): on | off\n\
-             pc_helper={}\n",
+             pc_helper={}\n\
+             # fim do expediente: a partir dessa hora (0 a 23) ele faz o resumo do dia\n\
+             summary_hour={}\n",
             on_off(self.updates),
             on_off(self.quiet_in_meetings),
             self.buddy,
@@ -394,7 +404,8 @@ impl Config {
             on_off(self.chat_hotkey),
             on_off(self.accessories),
             self.pc_mood.key(),
-            on_off(self.pc_helper)
+            on_off(self.pc_helper),
+            self.companion.summary_hour
         );
         text += "# plugins ligados (Configurações → Plugins): plugin=pasta|impressão digital SHA-256[|internet][|r=pasta lida][|w=pasta gravada]\nplugins=\n";
         for e in &self.plugins {
@@ -571,7 +582,15 @@ mod tests {
             on: false,
             minutes: 30,
             kind: ReminderKind::Custom("Conferir | o e-mail".into()),
+            at: None,
         });
+        c.companion.reminders.push(Reminder {
+            on: true,
+            minutes: 30,
+            kind: ReminderKind::Custom("Remédio".into()),
+            at: Some(14 * 60 + 5),
+        });
+        c.companion.summary_hour = 20;
         let back = Config::parse(&c.to_text());
         assert_eq!(back.companion, c.companion);
         assert!(back.size == Size::Tiny && back.mascot == "lance");
