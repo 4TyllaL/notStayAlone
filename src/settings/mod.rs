@@ -24,6 +24,7 @@ use windows_sys::Win32::{
 };
 
 mod editor;
+mod history_page;
 mod about;
 mod gallery_page;
 mod reminders;
@@ -35,6 +36,7 @@ mod paint;
 use editor::{canvas_proc, palette_proc, redraw_editor, CELL, SWATCH, SWATCH_GAP};
 use about::*;
 use gallery_page::*;
+use history_page::*;
 use reminders::*;
 use chat_page::*;
 use plugins_page::*;
@@ -89,6 +91,7 @@ pub enum Page {
     Plugins,
     Gallery,
     Performance,
+    History,
     /// Fora da lista: aberta pelo item "Sobre" no rodapé da barra lateral.
     About,
 }
@@ -99,7 +102,7 @@ const ABOUT: usize = Page::About as usize;
 const PROJECTS_URL: &str = "https://4tyllal.github.io/#projects";
 const GITHUB_URL: &str = "https://github.com/4TyllaL/notStayAlone";
 
-const PAGES: [(Page, char, &str); 7] = [
+const PAGES: [(Page, char, &str); 8] = [
     (Page::General, icon::HOME, "Geral"),
     (Page::Reminders, icon::BELL, "Lembretes"),
     (Page::Chat, icon::CHAT, "Conversa"),
@@ -107,6 +110,7 @@ const PAGES: [(Page, char, &str); 7] = [
     (Page::Plugins, icon::PUZZLE, "Plugins"),
     (Page::Gallery, icon::SHOP, "Galeria"),
     (Page::Performance, icon::GAUGE, "Desempenho"),
+    (Page::History, icon::CALENDAR, "Histórico"),
 ];
 const SPEEDS: [&str; 4] = ["Devagar", "Normal", "Rápido", "Muito rápido"];
 
@@ -174,6 +178,7 @@ const IDC_FOCUS: i32 = 117;
 const IDC_BREAK: i32 = 118;
 const IDC_FOCUS_QUIET: i32 = 119;
 const IDC_SUMMARY: i32 = 185;
+const IDC_HISTORY: i32 = 186;
 const IDC_HOTKEY: i32 = 134;
 const IDC_ACCESSORIES: i32 = 138;
 const IDC_MASCOT: i32 = 101;
@@ -974,6 +979,12 @@ unsafe fn build(hwnd: HWND) {
     f.note(tr("Nada é fechado sem você escolher. Programas do Windows, de outros usuários ou sem janela nunca aparecem."), LABEL_X, INNER_W);
     f.close();
 
+    // --- Histórico
+    f.start(Page::History as usize);
+    f.section(tr("Seus últimos dias"), Some(tr("O que ele anotou de cada dia: água, pausas e quanto tempo vocês ficaram juntos. Fica só no seu PC.")));
+    f.list(IDC_HISTORY, 400, false, &[(tr("Dia"), 0), (tr("Água"), 70), (tr("Pausas"), 210), (tr("Juntos"), 280)]);
+    f.close();
+
     // --- Sobre
     f.start(ABOUT);
     f.open();
@@ -1064,6 +1075,9 @@ unsafe fn show_page(hwnd: HWND, page: usize) {
     InvalidateRect(hwnd, null(), 0);
     if st.page == ABOUT {
         fill_security(hwnd);
+    }
+    if st.page == Page::History as usize {
+        fill_history(hwnd);
     }
     if st.page == Page::Gallery as usize && !st.gallery_loaded && st.busy.is_none() {
         load_gallery(hwnd);
@@ -1196,7 +1210,7 @@ mod tests {
                 assert!(!hwnd.is_null(), "a janela de Configurações não abriu");
                 let bottoms = state(hwnd).map(|st| st.sheet.bottoms.clone()).unwrap_or_default();
                 DestroyWindow(hwnd);
-                assert_eq!(bottoms.len(), 8, "esperava o fim de cada uma das 8 páginas");
+                assert_eq!(bottoms.len(), 9, "esperava o fim de cada uma das 9 páginas");
                 for (page, bottom) in bottoms {
                     assert!(bottom <= HEIGHT, "a página {page} termina em {bottom}, mas a janela tem {HEIGHT}");
                 }
