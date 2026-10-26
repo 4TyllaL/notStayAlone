@@ -110,8 +110,6 @@ const NOTICE_FIRST_SECS: u64 = 60;
 const WM_HOGS: u32 = WM_APP + 21;
 /// Uso do PC: lido a cada 3 rodadas do watch (6 s).
 const LOAD_EVERY: u32 = 3;
-/// "O PC tá pesado" no máximo a cada 20 min.
-const HEAVY_QUIET_SECS: u64 = 20 * 60;
 /// Resposta do filho que procura versões novas (`Reply` no `mailbox`).
 const WM_UPDATE_CHECKED: u32 = WM_APP + 11;
 /// Versão nova baixada e conferida (`Reply` com o caminho, no `mailbox`).
@@ -371,10 +369,7 @@ struct App {
     /// Uso do PC (processador e memória) e se ele está pesado.
     meter: resources::Meter,
     /// Quando ele falou do PC pesado pela última vez (e se ainda falta dizer "ufa").
-    heavy_said: Option<u64>,
-    owes_relief: bool,
-    /// Medindo os programas que mais pesam agora.
-    hogs_busy: bool,
+    complaints: resources::Complaints,
 }
 
 impl App {
@@ -451,9 +446,7 @@ impl App {
             updater: update::Updater::default(),
             meeting: false,
             meter: resources::Meter::default(),
-            heavy_said: None,
-            owes_relief: false,
-            hogs_busy: false,
+            complaints: resources::Complaints::default(),
         }
     }
 
@@ -1174,10 +1167,7 @@ impl App {
         // Fora da tela, longe do PC ou em silêncio: só muda o jeito, sem falar.
         let quiet = !self.visible() || self.companion.away() || self.companion.silenced(secs) || self.meeting;
         if heavy {
-            let recent = self.heavy_said.is_some_and(|t| secs < t + HEAVY_QUIET_SECS);
-            if !quiet && !recent && self.bubble.topic.is_none() {
-                self.heavy_said = Some(secs);
-                self.owes_relief = true;
+            if self.complaints.heavy(quiet || self.bubble.topic.is_some(), secs) {
                 let line = self.phrases.pick(Topic::Heavy, &mut self.rng).to_string();
                 let mut text = self.companion.fill(&line, &self.art.name);
                 if self.config.pc_helper {
@@ -1185,7 +1175,7 @@ impl App {
                 }
                 self.speak(Topic::Heavy, Some(text));
             }
-        } else if std::mem::take(&mut self.owes_relief) && !quiet && self.bubble.topic.is_none() {
+        } else if self.complaints.relieved(quiet || self.bubble.topic.is_some()) {
             self.mascot.cheer();
             self.say(Topic::Relieved);
         }
@@ -1193,10 +1183,9 @@ impl App {
 
     /// Mede (numa thread, ~1 s) os programas que mais pesam; a lista volta em `WM_HOGS`.
     unsafe fn request_hogs(&mut self) {
-        if self.hogs_busy {
+        if !self.complaints.begin_hogs() {
             return;
         }
-        self.hogs_busy = true;
         let (hwnd, by_cpu) = (self.hwnd as isize, self.meter.by_cpu);
         std::thread::spawn(move || mailbox::post(hwnd as HWND, WM_HOGS, resources::measure(by_cpu)));
     }
@@ -1687,7 +1676,7 @@ unsafe fn open_flyout(hwnd: HWND) {
 /// O menu bombeia mensagens enquanto está aberto: não segura referência ao App.
 unsafe fn show_hogs(hwnd: HWND, hogs: Vec<resources::Hog>) {
     let Some(app) = app_of(hwnd) else { return };
-    app.hogs_busy = false;
+    app.complaints.end_hogs();
     if hogs.is_empty() {
         return app.speak(Topic::App, Some(tr("Não achei nenhum programa seu pesando. Deve ser o próprio Windows trabalhando.").into()));
     }

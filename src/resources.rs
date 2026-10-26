@@ -167,6 +167,44 @@ impl Meter {
     }
 }
 
+/// "O PC tá pesado" no máximo a cada 20 min.
+const HEAVY_QUIET_SECS: u64 = 20 * 60;
+
+/// Quando ele fala do PC pesado (e do alívio), e se a medição dos programas está em andamento.
+#[derive(Default)]
+pub struct Complaints {
+    said: Option<u64>,
+    owes_relief: bool,
+    hogs_busy: bool,
+}
+
+impl Complaints {
+    /// O PC ficou pesado: `true` = pode reclamar agora (`quiet` = hora ruim para falar).
+    pub fn heavy(&mut self, quiet: bool, secs: u64) -> bool {
+        let recent = self.said.is_some_and(|t| secs < t + HEAVY_QUIET_SECS);
+        if quiet || recent {
+            return false;
+        }
+        self.said = Some(secs);
+        self.owes_relief = true;
+        true
+    }
+
+    /// O PC aliviou: `true` = deve dizer "ufa". A dívida some mesmo se `quiet`.
+    pub fn relieved(&mut self, quiet: bool) -> bool {
+        std::mem::take(&mut self.owes_relief) && !quiet
+    }
+
+    /// Começa a medir os programas; `false` = já está medindo.
+    pub fn begin_hogs(&mut self) -> bool {
+        !std::mem::replace(&mut self.hogs_busy, true)
+    }
+
+    pub fn end_hogs(&mut self) {
+        self.hogs_busy = false;
+    }
+}
+
 // --- programas que mais pesam ------------------------------------------------------
 
 /// Um programa seu (todos os processos do mesmo .exe juntos, como as abas do navegador).
@@ -490,5 +528,24 @@ mod tests {
             assert!(!h.path.to_lowercase().starts_with(&windows), "{}", h.path);
             assert!(!h.name.is_empty());
         }
+    }
+
+    #[test]
+    fn complaints_are_spaced_out_and_relief_is_owed_once() {
+        let mut c = Complaints::default();
+        assert!(!c.heavy(true, 0) && !c.relieved(false)); // calado: nada a dever
+        assert!(c.heavy(false, 10));
+        assert!(!c.heavy(false, 10 + HEAVY_QUIET_SECS - 1));
+        assert!(!c.relieved(true) && !c.relieved(false)); // dívida some mesmo calado
+        assert!(c.heavy(false, 10 + HEAVY_QUIET_SECS));
+        assert!(c.relieved(false) && !c.relieved(false));
+    }
+
+    #[test]
+    fn only_one_hog_measurement_at_a_time() {
+        let mut c = Complaints::default();
+        assert!(c.begin_hogs() && !c.begin_hogs());
+        c.end_hogs();
+        assert!(c.begin_hogs());
     }
 }
