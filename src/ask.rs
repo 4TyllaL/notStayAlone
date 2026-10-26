@@ -343,10 +343,11 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let Some(st) = state(hwnd) else { return 0 };
             let di = &*(lp as *const DRAWITEMSTRUCT);
             let style = ui::ButtonStyle {
-                primary: di.CtlID as i32 == IDYES,
+                kind: if di.CtlID as i32 == IDYES { ui::Kind::Primary } else { ui::Kind::Secondary },
                 background: theme::bg(),
                 font: st.font,
                 bold: st.bold,
+                small: Some(st.small),
                 dpi: st.dpi,
             };
             ui::draw_button(di, &style);

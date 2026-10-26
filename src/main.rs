@@ -110,15 +110,10 @@ const NOTICE_FIRST_SECS: u64 = 60;
 const WM_HOGS: u32 = WM_APP + 21;
 /// Uso do PC: lido a cada 3 rodadas do watch (6 s).
 const LOAD_EVERY: u32 = 3;
-/// "O PC tá pesado" no máximo a cada 20 min.
-const HEAVY_QUIET_SECS: u64 = 20 * 60;
 /// Resposta do filho que procura versões novas (`Reply` no `mailbox`).
 const WM_UPDATE_CHECKED: u32 = WM_APP + 11;
 /// Versão nova baixada e conferida (`Reply` com o caminho, no `mailbox`).
 const WM_UPDATE_DOWNLOADED: u32 = WM_APP + 12;
-/// Primeira procura por versão nova: dois minutos depois de abrir; depois, uma vez por dia.
-const UPDATE_FIRST_SECS: u64 = 120;
-const UPDATE_EVERY_SECS: u64 = 24 * 3600;
 
 /// Argumentos aceitos na linha de comando (úteis em atalhos do Windows).
 /// Outra instância repassa o índice nesta lista com `WM_REMOTE`.
@@ -364,28 +359,17 @@ struct App {
     hat: Option<accessory::Hat>,
     hearts: u32,
     taskbar_created: u32,
-    /// Conversa com a IA: histórico recente e se há resposta a caminho.
-    chat_history: Vec<chat::Turn>,
-    chat_busy: bool,
-    /// Plugin que responde à conversa (nenhum = conversa desligada).
-    chat_plugin: Option<Plugin>,
+    /// Conversa com a IA.
+    chat: chat::Session,
     notices: Vec<Notice>,
-    /// Versão nova encontrada no GitHub (o painel oferece atualizar).
-    update: Option<update::Release>,
-    /// Procurando ou baixando versão nova agora.
-    update_busy: bool,
-    update_checked: Option<u64>,
-    /// A procura em andamento foi pedida por você (responde mesmo sem novidade).
-    update_manual: bool,
+    /// Versão nova no GitHub e o andamento da procura ou do download.
+    updater: update::Updater,
     /// Programa de reunião em primeiro plano (com a opção ligada).
     meeting: bool,
     /// Uso do PC (processador e memória) e se ele está pesado.
     meter: resources::Meter,
     /// Quando ele falou do PC pesado pela última vez (e se ainda falta dizer "ufa").
-    heavy_said: Option<u64>,
-    owes_relief: bool,
-    /// Medindo os programas que mais pesam agora.
-    hogs_busy: bool,
+    complaints: resources::Complaints,
 }
 
 impl App {
@@ -455,21 +439,14 @@ impl App {
             pending: Some((Companion::greeting(hour), None)), // diz oi assim que pousar
             hearts: 0,
             taskbar_created: 0,
-            chat_history: Vec::new(),
-            chat_busy: false,
+            chat: chat::Session::default(),
             guide: None,
             hat: None,
-            chat_plugin: None,
             notices: Vec::new(),
-            update: None,
-            update_busy: false,
-            update_checked: None,
-            update_manual: false,
+            updater: update::Updater::default(),
             meeting: false,
             meter: resources::Meter::default(),
-            heavy_said: None,
-            owes_relief: false,
-            hogs_busy: false,
+            complaints: resources::Complaints::default(),
         }
     }
 
@@ -703,6 +680,7 @@ impl App {
             secs: self.secs(),
             day,
             hour,
+            minute: system::minute(),
             idle_secs: idle_secs(),
             hidden: self.user_hidden,
             busy: self.busy_hidden || self.meeting,
@@ -863,7 +841,7 @@ impl App {
         }
         self.present();
         self.present_toy();
-        self.chat_history.clear(); // outro mascote, outra conversa
+        self.chat.reset(); // outro mascote, outra conversa
         self.say(Topic::Hello);
     }
 
@@ -873,7 +851,7 @@ impl App {
         if let Ok((_, _, phrases)) = load_mascot(&self.config.mascot, &self.base_phrases) {
             self.phrases = phrases;
         }
-        self.chat_history.clear(); // a conversa recomeça no idioma novo
+        self.chat.reset(); // a conversa recomeça no idioma novo
     }
 
     /// Acessório de época: confere a data (e o seu aniversário) e redesenha se mudou.
@@ -924,30 +902,26 @@ impl App {
 
     /// Você mandou uma mensagem na caixinha.
     unsafe fn on_chat_send(&mut self, text: String) {
-        if self.chat_busy {
+        if self.chat.is_busy() {
             return; // uma pergunta de cada vez
         }
-        let Some(plugin) = self.chat_plugin.clone() else {
+        let Some(plugin) = self.chat.plugin.clone() else {
             let tip = tr("Para conversar comigo, ligue um plugin de conversa em Configurações → Plugins.");
             return self.speak(Topic::Chat, Some(tip.into()));
         };
-        self.chat_history.push((true, text));
-        let excess = self.chat_history.len().saturating_sub(chat::HISTORY);
-        self.chat_history.drain(..excess);
+        self.chat.ask(text);
         let about = self.art.sheet.about.as_deref().unwrap_or(tr("um mascote fofinho"));
         let mut system = chat::system_prompt(&self.art.name, about, self.art.female());
         if self.config.memory {
             system += &memory::prompt(&memory::load(), &today());
         }
-        let payload = chat::payload(&system, &self.chat_history, None);
-        self.chat_busy = true;
+        let payload = chat::payload(&system, self.chat.history(), None);
         self.speak(Topic::Chat, Some("...".into())); // pensando
         let approved = plugin.approved(&self.config.plugins);
         plugins::request(self.hwnd, WM_CHAT_REPLY, &plugin, approved, payload, |reply| reply);
     }
 
     unsafe fn on_chat_reply(&mut self, reply: Reply) {
-        self.chat_busy = false;
         match reply {
             Ok(text) => {
                 // A linha "LEMBRAR: ..." vai para a memória, não para o balão.
@@ -956,11 +930,11 @@ impl App {
                     memory::remember(&facts, &today());
                 }
                 let text = if shown.is_empty() { tr("Anotado!").to_string() } else { chat::shorten(&shown) };
-                self.chat_history.push((false, text.clone()));
+                self.chat.answered(text.clone());
                 self.speak(Topic::Chat, Some(text));
             }
             Err(e) => {
-                self.chat_history.pop(); // a pergunta ficou sem resposta
+                self.chat.failed();
                 self.speak(Topic::Chat, Some(chat::shorten(&fill(tr("Hmm, não consegui responder: {}"), &[&e]))));
             }
         }
@@ -973,7 +947,7 @@ impl App {
         let enabled = &self.config.plugins;
         let on = |p: &Plugin| enabled.iter().any(|e| e.id == p.id) && p.program.is_file();
         let all: Vec<Plugin> = plugins::list().into_iter().filter(on).collect();
-        self.chat_plugin = all.iter().find(|p| p.kind == PluginKind::Chat).cloned();
+        self.chat.plugin = all.iter().find(|p| p.kind == PluginKind::Chat).cloned();
         let first = self.secs() + NOTICE_FIRST_SECS;
         let old = std::mem::take(&mut self.notices);
         self.notices = all
@@ -1041,11 +1015,7 @@ impl App {
     }
 
     unsafe fn check_updates(&mut self, secs: u64) {
-        let due = match self.update_checked {
-            None => secs >= UPDATE_FIRST_SECS,
-            Some(last) => secs >= last + UPDATE_EVERY_SECS,
-        };
-        if self.config.updates && due {
+        if self.updater.due(self.config.updates, secs) {
             self.request_update_check(false);
         }
     }
@@ -1053,18 +1023,13 @@ impl App {
     /// Procura versão nova (num processo filho). `manual` = você pediu: a resposta
     /// aparece mesmo quando não há novidade ou quando falha.
     unsafe fn request_update_check(&mut self, manual: bool) {
-        self.update_manual |= manual;
-        if self.update_busy {
-            return; // já está procurando (ou baixando)
+        if self.updater.begin_check(manual, self.secs()) {
+            update::check(self.hwnd, WM_UPDATE_CHECKED);
         }
-        self.update_checked = Some(self.secs());
-        self.update_busy = true;
-        update::check(self.hwnd, WM_UPDATE_CHECKED);
     }
 
     unsafe fn on_update_checked(&mut self, reply: Reply) {
-        self.update_busy = false;
-        let manual = std::mem::take(&mut self.update_manual);
+        let manual = self.updater.end_check();
         let release = match reply.and_then(|text| update::Release::from_reply(&text).ok_or_else(|| tr("resposta inválida").to_string())) {
             Ok(release) => release,
             // Sem internet ou GitHub fora do ar: tenta de novo mais tarde, sem incomodar.
@@ -1072,48 +1037,49 @@ impl App {
             Err(_) => return,
         };
         if update::is_newer(&release.version, update::current()) {
-            if manual || self.update.as_ref() != Some(&release) {
+            if manual || self.updater.release.as_ref() != Some(&release) {
                 let text = fill(tr("Tem versão nova de mim (v{})! Abra o painel para atualizar."), &[&release.version]);
                 self.speak(Topic::App, Some(text));
             }
-            self.update = Some(release);
+            self.updater.release = Some(release);
         } else if manual {
             self.speak(Topic::App, Some(fill(tr("Você já está na versão mais nova (v{})!"), &[&update::current()])));
         }
     }
 
     unsafe fn start_update(&mut self) {
-        let Some(release) = self.update.clone().filter(|_| !self.update_busy) else { return };
-        self.update_busy = true;
+        let Some(release) = self.updater.begin_download() else { return };
         self.speak(Topic::App, Some(fill(tr("Baixando a versão {}..."), &[&release.version])));
         update::fetch(self.hwnd, WM_UPDATE_DOWNLOADED, &release);
     }
 
-    unsafe fn on_update_downloaded(&mut self, reply: Reply) {
-        self.update_manual = false; // um pedido feito durante o download já foi respondido por ele
-        let path = match reply {
-            Ok(path) => path,
-            Err(e) => {
-                self.update_busy = false;
-                return self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e]))));
+    /// Versão baixada e conferida. Devolve o caminho e o texto da pergunta; quem chama pergunta
+    /// *sem* segurar o `&mut App` (a caixa de mensagem processa mensagens, e o timer entraria no app).
+    unsafe fn on_update_downloaded(&mut self, reply: Reply) -> Option<(String, String)> {
+        self.updater.end_download();
+        match reply {
+            Ok(path) => {
+                // o `Updater` segue ocupado com a pergunta aberta (nada de baixar de novo).
+                let text = self.updater.release.as_ref().map(update::confirmation).unwrap_or_default();
+                Some((path, text))
             }
-        };
-        // Baixado e conferido: mostra o que foi verificado e o que mudou, e só instala se
-        // você quiser. `update_busy` segue ligado com a pergunta aberta (nada de baixar de novo).
-        let text = self.update.as_ref().map(update::confirmation).unwrap_or_default();
-        let answer = MessageBoxW(
-            self.hwnd,
-            w(&text).as_ptr(),
-            w(tr("Atualizar o !StayAlone")).as_ptr(),
-            MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
-        );
-        self.update_busy = false;
-        if answer != IDYES {
-            update::discard(&path);
+            Err(e) => {
+                self.updater.finish();
+                self.speak(Topic::App, Some(chat::shorten(&fill(tr("Não consegui atualizar: {}"), &[&e]))));
+                None
+            }
+        }
+    }
+
+    /// Resposta da pergunta de atualização: só instala se você quis.
+    unsafe fn finish_update(&mut self, path: &str, yes: bool) {
+        self.updater.finish();
+        if !yes {
+            update::discard(path);
             return self.speak(Topic::App, Some(tr("Tudo bem, fica para depois. O botão Atualizar continua no painel.").into()));
         }
         self.save_state();
-        match update::install(&path) {
+        match update::install(path) {
             Ok(()) => {
                 DestroyWindow(self.hwnd); // a versão nova já está abrindo
             }
@@ -1202,10 +1168,7 @@ impl App {
         // Fora da tela, longe do PC ou em silêncio: só muda o jeito, sem falar.
         let quiet = !self.visible() || self.companion.away() || self.companion.silenced(secs) || self.meeting;
         if heavy {
-            let recent = self.heavy_said.is_some_and(|t| secs < t + HEAVY_QUIET_SECS);
-            if !quiet && !recent && self.bubble.topic.is_none() {
-                self.heavy_said = Some(secs);
-                self.owes_relief = true;
+            if self.complaints.heavy(quiet || self.bubble.topic.is_some(), secs) {
                 let line = self.phrases.pick(Topic::Heavy, &mut self.rng).to_string();
                 let mut text = self.companion.fill(&line, &self.art.name);
                 if self.config.pc_helper {
@@ -1213,7 +1176,7 @@ impl App {
                 }
                 self.speak(Topic::Heavy, Some(text));
             }
-        } else if std::mem::take(&mut self.owes_relief) && !quiet && self.bubble.topic.is_none() {
+        } else if self.complaints.relieved(quiet || self.bubble.topic.is_some()) {
             self.mascot.cheer();
             self.say(Topic::Relieved);
         }
@@ -1221,10 +1184,9 @@ impl App {
 
     /// Mede (numa thread, ~1 s) os programas que mais pesam; a lista volta em `WM_HOGS`.
     unsafe fn request_hogs(&mut self) {
-        if self.hogs_busy {
+        if !self.complaints.begin_hogs() {
             return;
         }
-        self.hogs_busy = true;
         let (hwnd, by_cpu) = (self.hwnd as isize, self.meter.by_cpu);
         std::thread::spawn(move || mailbox::post(hwnd as HWND, WM_HOGS, resources::measure(by_cpu)));
     }
@@ -1706,7 +1668,7 @@ unsafe fn open_flyout(hwnd: HWND) {
         reminders_on: app.config.companion.reminders.iter().filter(|r| r.on).count(),
         water: app.companion.stats.water,
         water_goal: app.companion.settings.water_goal,
-        update: app.update.as_ref().map(|r| r.version.clone()),
+        update: app.updater.release.as_ref().map(|r| r.version.clone()),
     };
     flyout::open(hwnd, model, cursor());
 }
@@ -1715,7 +1677,7 @@ unsafe fn open_flyout(hwnd: HWND) {
 /// O menu bombeia mensagens enquanto está aberto: não segura referência ao App.
 unsafe fn show_hogs(hwnd: HWND, hogs: Vec<resources::Hog>) {
     let Some(app) = app_of(hwnd) else { return };
-    app.hogs_busy = false;
+    app.complaints.end_hogs();
     if hogs.is_empty() {
         return app.speak(Topic::App, Some(tr("Não achei nenhum programa seu pesando. Deve ser o próprio Windows trabalhando.").into()));
     }
@@ -1783,7 +1745,7 @@ unsafe fn run_action(hwnd: HWND, action: Action) {
         Action::Ball if ball_out => app.remove_toy(),
         Action::Ball => app.spawn_toy(Kind::Ball),
         // Sem plugin de conversa ligado: leva direto para onde se liga um.
-        Action::Chat if app.chat_plugin.is_none() => settings::open(hwnd, &app.config, app.app_icon, Page::Plugins),
+        Action::Chat if app.chat.plugin.is_none() => settings::open(hwnd, &app.config, app.app_icon, Page::Plugins),
         Action::Chat => app.open_chat(),
         Action::Mascot(i) => {
             if let Some(info) = pack::list().get(i) {
@@ -1937,7 +1899,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_UPDATE_DOWNLOADED => {
             if let Some(reply) = mailbox::take::<Reply>(hwnd, msg) {
-                app.on_update_downloaded(reply);
+                if let Some((path, text)) = app.on_update_downloaded(reply) {
+                    // Sem `app` na mão enquanto a caixa está aberta: ela processa mensagens.
+                    let answer = MessageBoxW(
+                        hwnd,
+                        w(&text).as_ptr(),
+                        w(tr("Atualizar o !StayAlone")).as_ptr(),
+                        MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
+                    );
+                    if let Some(app) = app_of(hwnd) {
+                        app.finish_update(&path, answer == IDYES);
+                    }
+                }
             }
         }
         WM_PLUGIN_SAY => {

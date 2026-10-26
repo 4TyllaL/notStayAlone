@@ -157,7 +157,7 @@ pub(super) unsafe extern "system" fn palette_proc(hwnd: HWND, msg: u32, wp: WPAR
                 let r = swatch_rect(slot, st.dpi);
                 let selected = slot as u8 == st.color;
                 // Moldura (grossa na cor selecionada).
-                let frame = if selected { rgb(0x2b, 0x1e, 0x2f) } else { rgb(0xc8, 0xc8, 0xc8) };
+                let frame = colorref(if selected { crate::theme::text() } else { crate::theme::field_border() });
                 fill(dc, r, frame);
                 let pad = if selected { 3 * one } else { one };
                 let inner = RECT { left: r.left + pad, top: r.top + pad, right: r.right - pad, bottom: r.bottom - pad };

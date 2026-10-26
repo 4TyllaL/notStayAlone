@@ -3,7 +3,7 @@
 //! `update` a cada poucos segundos e executa os eventos devolvidos.
 
 use crate::{
-    lang::{self, tr},
+    lang::{self, fill, tr},
     phrases::Topic,
 };
 
@@ -13,7 +13,34 @@ pub struct Reminder {
     pub on: bool,
     pub minutes: u32,
     pub kind: ReminderKind,
+    /// Horário fixo (minutos desde a meia-noite): avisa uma vez por dia nessa hora, em vez de
+    /// a cada `minutes`. Só os lembretes seus podem ter.
+    pub at: Option<u32>,
 }
+
+impl Reminder {
+    /// "30 min" ou "às 14:30" (a coluna "Quando" da lista).
+    pub fn schedule_label(&self) -> String {
+        match self.at {
+            Some(at) => fill(tr("às {}"), &[&format_time(at)]),
+            None => format!("{} min", self.minutes),
+        }
+    }
+}
+
+/// "14:30" -> 870 (minutos desde a meia-noite).
+pub fn parse_time(text: &str) -> Option<u32> {
+    let (h, m) = text.trim().split_once(':')?;
+    let (h, m) = (h.trim().parse::<u32>().ok()?, m.trim().parse::<u32>().ok()?);
+    (h < 24 && m < 60 && m.to_string().len() <= 2).then_some(h * 60 + m)
+}
+
+pub fn format_time(minutes: u32) -> String {
+    format!("{:02}:{:02}", minutes / 60 % 24, minutes % 60)
+}
+
+/// Quanto tempo depois da hora marcada o lembrete ainda vale (PC ocupado, mascote calado...).
+const FIXED_WINDOW: u32 = 30;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ReminderKind {
@@ -60,6 +87,8 @@ pub struct Settings {
     pub break_minutes: u32,
     /// Durante o foco, os lembretes esperam a pausa.
     pub focus_holds_reminders: bool,
+    /// Fim do expediente: a partir dessa hora ele faz o resumo do dia (0 a 23).
+    pub summary_hour: u32,
 }
 
 impl Default for Settings {
@@ -68,9 +97,9 @@ impl Default for Settings {
         let reminders = ReminderKind::BUILT_IN
             .into_iter()
             .zip(defaults)
-            .map(|(kind, (on, minutes))| Reminder { on, minutes, kind })
+            .map(|(kind, (on, minutes))| Reminder { on, minutes, kind, at: None })
             .collect();
-        Settings { reminders, away_minutes: 5, water_goal: 8, focus_minutes: 25, break_minutes: 5, focus_holds_reminders: true }
+        Settings { reminders, away_minutes: 5, water_goal: 8, focus_minutes: 25, break_minutes: 5, focus_holds_reminders: true, summary_hour: 18 }
     }
 }
 
@@ -92,6 +121,8 @@ pub struct Now {
     /// Data local como AAAAMMDD.
     pub day: u32,
     pub hour: u32,
+    /// Minuto da hora atual (0 a 59).
+    pub minute: u32,
     /// Segundos desde o último uso de teclado/mouse.
     pub idle_secs: u64,
     /// Mascote escondido pelo usuário: lembretes são descartados.
@@ -182,6 +213,8 @@ pub struct Companion {
     away_since: u64,
     /// Segundos ativos desde o último aviso de cada lembrete.
     counters: Vec<u64>,
+    /// Dia (AAAAMMDD) em que cada lembrete de horário fixo avisou por último.
+    fixed_day: Vec<u32>,
     last_reminder: Option<u64>,
     silenced_until: u64,
     /// (em pausa?, termina em)
@@ -201,6 +234,7 @@ impl Companion {
     pub fn new(settings: Settings, day: u32) -> Companion {
         Companion {
             counters: vec![0; settings.reminders.len()],
+            fixed_day: vec![0; settings.reminders.len()],
             settings,
             stats: Stats::new(day),
             history: Vec::new(),
@@ -234,7 +268,16 @@ impl Companion {
                 old.map_or(0, |i| self.counters[i])
             })
             .collect();
+        let fixed_day = settings
+            .reminders
+            .iter()
+            .map(|r| {
+                let old = self.settings.reminders.iter().position(|o| o.kind == r.kind && o.at == r.at);
+                old.map_or(0, |i| self.fixed_day[i])
+            })
+            .collect();
         self.counters = counters;
+        self.fixed_day = fixed_day;
         self.settings = settings;
     }
 
@@ -355,7 +398,19 @@ impl Companion {
         // No foco, os lembretes esperam a pausa (se você quiser assim).
         let focusing = self.settings.focus_holds_reminders && matches!(self.pomodoro, Some((false, _)));
         let busy = now.busy || focusing;
+        let minute_of_day = now.hour * 60 + now.minute;
         for (i, r) in self.settings.reminders.iter().enumerate() {
+            if let Some(at) = r.at {
+                let due = r.on && (at..at + FIXED_WINDOW).contains(&minute_of_day) && self.fixed_day[i] != now.day;
+                let waiting = busy || self.last_reminder.is_some_and(|t| now.secs < t + REMINDER_GAP);
+                if due && !quiet && !waiting {
+                    self.fixed_day[i] = now.day;
+                    self.last_reminder = Some(now.secs);
+                    events.push(Event::Remind(i));
+                    return events;
+                }
+                continue;
+            }
             if !r.on || r.minutes == 0 {
                 self.counters[i] = 0;
                 continue;
@@ -399,7 +454,7 @@ impl Companion {
             }
         }
 
-        if now.hour >= 18 && !self.stats.summary_shown && self.stats.together_secs >= 3600 {
+        if now.hour >= self.settings.summary_hour && !self.stats.summary_shown && self.stats.together_secs >= 3600 {
             self.stats.summary_shown = true;
             events.push(Event::Say(Topic::Summary));
         }
@@ -710,7 +765,7 @@ mod tests {
     fn custom_reminder_fires_on_its_own_interval() {
         let mut s = settings();
         s.reminders.iter_mut().for_each(|r| r.on = false);
-        s.reminders.push(Reminder { on: true, minutes: 10, kind: ReminderKind::Custom("E-mail".into()) });
+        s.reminders.push(Reminder { on: true, minutes: 10, kind: ReminderKind::Custom("E-mail".into()), at: None });
         let mut c = Companion::new(s, DAY);
         assert_eq!(active(&mut c, 0, 10 * 60 + 10), vec![Event::Remind(3)]);
     }
@@ -720,7 +775,7 @@ mod tests {
         let mut c = Companion::new(settings(), DAY);
         active(&mut c, 0, 40 * 60);
         let mut s = settings();
-        s.reminders.insert(0, Reminder { on: true, minutes: 500, kind: ReminderKind::Custom("x".into()) });
+        s.reminders.insert(0, Reminder { on: true, minutes: 500, kind: ReminderKind::Custom("x".into()), at: None });
         c.set_settings(s);
         // A água já tinha 40 min: faltam só uns 5.
         let events = active(&mut c, 40 * 60, 46 * 60);
@@ -729,7 +784,7 @@ mod tests {
 
     fn now(secs: u64, idle: u64) -> Now {
         // Uma quarta-feira qualquer, 14h.
-        Now { secs, day: DAY, hour: 14, idle_secs: idle, hidden: false, busy: false, weekday: 3, birthday: false }
+        Now { secs, day: DAY, hour: 14, minute: 0, idle_secs: idle, hidden: false, busy: false, weekday: 3, birthday: false }
     }
 
     /// Simula uso ativo de `from` até `to`, de 2 em 2 s, juntando os eventos.
@@ -1027,5 +1082,56 @@ mod tests {
         assert_eq!(c.on_typing(0), Some(Topic::Typing));
         assert_eq!(c.on_typing(600), None);
         assert_eq!(c.on_typing(46 * 60), Some(Topic::Typing));
+    }
+
+    #[test]
+    fn times_parse_and_format() {
+        assert_eq!(parse_time("14:30"), Some(870));
+        assert_eq!(parse_time(" 9:05 "), Some(545));
+        assert_eq!(parse_time("24:00"), None);
+        assert_eq!(parse_time("10:60"), None);
+        assert_eq!(parse_time("30"), None);
+        assert_eq!(format_time(870), "14:30");
+    }
+
+    fn fixed_settings(at: u32) -> Settings {
+        let mut s = settings();
+        s.reminders.iter_mut().for_each(|r| r.on = false);
+        s.reminders.push(Reminder { on: true, minutes: 30, kind: ReminderKind::Custom("Remédio".into()), at: Some(at) });
+        s
+    }
+
+    #[test]
+    fn fixed_time_reminder_fires_once_a_day_inside_its_window() {
+        let mut c = Companion::new(fixed_settings(14 * 60 + 30), DAY);
+        let at = |secs, hour, minute| Now { hour, minute, ..now(secs, 0) };
+        assert!(c.update(&at(0, 14, 29)).is_empty()); // ainda não
+        assert_eq!(c.update(&at(10, 14, 30)), vec![Event::Remind(3)]);
+        assert!(c.update(&at(200, 14, 40)).is_empty()); // já avisou hoje
+        let mut late = Companion::new(fixed_settings(8 * 60), DAY);
+        assert!(late.update(&at(0, 14, 0)).is_empty()); // abriu o app depois da janela
+    }
+
+    #[test]
+    fn fixed_time_reminder_waits_while_silenced_and_fires_the_next_day() {
+        let mut c = Companion::new(fixed_settings(14 * 60), DAY);
+        c.silence(0);
+        let at = |secs, day, minute| Now { day, hour: 14, minute, ..now(secs, 0) };
+        assert!(c.update(&at(10, DAY, 5)).is_empty());
+        c.unsilence();
+        assert_eq!(c.update(&at(20, DAY, 10)), vec![Event::Remind(3)]);
+        assert_eq!(c.update(&at(200, DAY + 1, 0)), vec![Event::Remind(3)]);
+    }
+
+    #[test]
+    fn summary_waits_for_the_chosen_hour() {
+        let mut s = settings();
+        s.summary_hour = 20;
+        s.reminders.iter_mut().for_each(|r| r.on = false);
+        let mut c = Companion::new(s, DAY);
+        c.stats.together_secs = 7200;
+        let at = |secs, hour| Now { weekday: 3, hour, ..now(secs, 0) };
+        assert!(c.update(&at(0, 19)).is_empty());
+        assert_eq!(c.update(&at(10, 20)), vec![Event::Say(Topic::Summary)]);
     }
 }

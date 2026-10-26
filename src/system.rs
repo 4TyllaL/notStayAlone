@@ -33,6 +33,13 @@ pub unsafe fn clock() -> (u32, u32, u32) {
     (t.wYear as u32 * 10_000 + t.wMonth as u32 * 100 + t.wDay as u32, t.wHour as u32, t.wDayOfWeek as u32)
 }
 
+/// Minuto da hora local (0 a 59).
+pub unsafe fn minute() -> u32 {
+    let mut t: SYSTEMTIME = zeroed();
+    GetLocalTime(&mut t);
+    t.wMinute as u32
+}
+
 /// Programas de reunião/chamada de vídeo, pelo nome do executável.
 const MEETING_APPS: [&str; 9] = [
     "teams.exe", "ms-teams.exe", "zoom.exe", "webex.exe", "webexmta.exe", "ciscocollabhost.exe", "skype.exe",

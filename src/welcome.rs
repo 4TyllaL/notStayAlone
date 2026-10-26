@@ -236,8 +236,10 @@ unsafe fn show_step(hwnd: HWND, step: usize) {
     }
     ShowWindow(GetDlgItem(hwnd, IDC_BACK), if st.step == 0 { SW_HIDE } else { SW_SHOW });
     let next = if st.step == STEPS - 1 { tr("Começar!") } else { tr("Próximo") };
-    SetWindowTextW(GetDlgItem(hwnd, IDC_NEXT), w(next).as_ptr());
+    let button = GetDlgItem(hwnd, IDC_NEXT);
+    SetWindowTextW(button, w(next).as_ptr());
     InvalidateRect(hwnd, null(), 0);
+    InvalidateRect(button, null(), 1);
 }
 
 /// Retângulo do mascote `i` no primeiro passo (em pixels).
@@ -366,10 +368,15 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             let id = di.CtlID as i32;
             let toggle = st.toggles.iter().find(|t| t.0 == id).map(|t| t.1);
             let style = ui::ButtonStyle {
-                primary: id == IDC_NEXT,
+                kind: match id {
+                    IDC_NEXT => ui::Kind::Primary,
+                    IDC_GETKEY => ui::Kind::Ghost,
+                    _ => ui::Kind::Secondary,
+                },
                 background: if id == IDC_GETKEY || toggle.is_some() { theme::card() } else { theme::bg() },
                 font: st.font,
                 bold: st.bold,
+                small: None,
                 dpi: st.dpi,
             };
             match toggle {

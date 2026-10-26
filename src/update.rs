@@ -347,6 +347,67 @@ pub fn cleanup() -> bool {
     !old.exists() || fs::remove_file(&old).is_ok()
 }
 
+/// Quanto tempo entre duas procuras por versão nova.
+pub const EVERY_SECS: u64 = 24 * 3600;
+/// Primeira procura: dois minutos depois de abrir.
+pub const FIRST_SECS: u64 = 120;
+
+/// Onde a atualização está: o que o app sabe e se há uma procura ou um download em andamento.
+#[derive(Default)]
+pub struct Updater {
+    /// Versão nova encontrada (o painel oferece atualizar).
+    pub release: Option<Release>,
+    checked: Option<u64>,
+    busy: bool,
+    /// A procura em andamento foi pedida por você (responde mesmo sem novidade).
+    manual: bool,
+}
+
+impl Updater {
+    /// Está na hora da procura diária?
+    pub fn due(&self, enabled: bool, secs: u64) -> bool {
+        enabled
+            && match self.checked {
+                None => secs >= FIRST_SECS,
+                Some(last) => secs >= last + EVERY_SECS,
+            }
+    }
+
+    /// Pede uma procura. `true` = quem chama deve disparar a rede; `false` = já está ocupado.
+    pub fn begin_check(&mut self, manual: bool, secs: u64) -> bool {
+        self.manual |= manual;
+        if self.busy {
+            return false;
+        }
+        self.checked = Some(secs);
+        self.busy = true;
+        true
+    }
+
+    /// A procura terminou; devolve se foi você que pediu.
+    pub fn end_check(&mut self) -> bool {
+        self.busy = false;
+        std::mem::take(&mut self.manual)
+    }
+
+    /// Começa o download da versão achada (`None` se não há ou se já está ocupado).
+    pub fn begin_download(&mut self) -> Option<Release> {
+        let release = self.release.clone().filter(|_| !self.busy)?;
+        self.busy = true;
+        Some(release)
+    }
+
+    /// O download terminou; um pedido manual feito durante ele já foi respondido por ele.
+    pub fn end_download(&mut self) {
+        self.manual = false;
+    }
+
+    /// Fim da pergunta "atualizar?" (ou de um erro): libera para uma nova procura.
+    pub fn finish(&mut self) {
+        self.busy = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,5 +498,28 @@ mod tests {
             assert!(parse_release(&api("v9.0.0", url)).is_none(), "aceitou {url}");
         }
         assert!(Release::from_line("1.2.0 https://github.com/4TyllaL/notStayAlone/releases/download/v1.2.0/dontStayAlone.exe naohex").is_none());
+    }
+
+    #[test]
+    fn updater_checks_daily_and_never_twice_at_once() {
+        let mut u = Updater::default();
+        assert!(!u.due(true, FIRST_SECS - 1) && u.due(true, FIRST_SECS) && !u.due(false, FIRST_SECS));
+        assert!(u.begin_check(false, 130));
+        assert!(!u.begin_check(true, 131)); // ocupado, mas lembra que você pediu
+        assert!(u.end_check());
+        assert!(!u.due(true, 130 + EVERY_SECS - 1) && u.due(true, 130 + EVERY_SECS));
+    }
+
+    #[test]
+    fn updater_downloads_only_when_idle_and_a_release_exists() {
+        let mut u = Updater::default();
+        assert!(u.begin_download().is_none());
+        u.release = Some(Release { version: "9.9.9".into(), url: String::new(), sha256: String::new(), notes: String::new() });
+        assert!(u.begin_download().is_some());
+        assert!(u.begin_download().is_none()); // já baixando
+        assert!(!u.begin_check(false, 1)); // e não procura de novo
+        u.end_download();
+        u.finish();
+        assert!(u.begin_download().is_some());
     }
 }
